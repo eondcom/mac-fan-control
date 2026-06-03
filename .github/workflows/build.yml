@@ -1,0 +1,115 @@
+name: Build macOS App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-intel:
+    runs-on: macos-13        # Intel runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build .app
+        run: |
+          pyinstaller \
+            --windowed \
+            --onefile \
+            --name "MacFanControl" \
+            fan-control.py
+
+      - name: Create DMG
+        run: |
+          hdiutil create \
+            -volname "MacFanControl" \
+            -srcfolder "dist/MacFanControl.app" \
+            -ov -format UDZO \
+            "dist/MacFanControl-intel.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacFanControl-intel
+          path: dist/MacFanControl-intel.dmg
+
+  build-arm:
+    runs-on: macos-latest    # Apple Silicon runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build .app
+        run: |
+          pyinstaller \
+            --windowed \
+            --onefile \
+            --name "MacFanControl" \
+            fan-control.py
+
+      - name: Create DMG
+        run: |
+          hdiutil create \
+            -volname "MacFanControl" \
+            -srcfolder "dist/MacFanControl.app" \
+            -ov -format UDZO \
+            "dist/MacFanControl-arm.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacFanControl-arm
+          path: dist/MacFanControl-arm.dmg
+
+  release:
+    needs: [build-intel, build-arm]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download Intel DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: MacFanControl-intel
+
+      - name: Download ARM DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: MacFanControl-arm
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            MacFanControl-intel.dmg
+            MacFanControl-arm.dmg
+          body: |
+            ## MacFanControl ${{ github.ref_name }}
+
+            Intel Mac과 Apple Silicon Mac 모두 지원합니다.
+
+            ### 설치 방법
+            1. 본인 Mac에 맞는 DMG 다운로드
+               - Intel Mac → `MacFanControl-intel.dmg`
+               - Apple Silicon (M1/M2/M3) → `MacFanControl-arm.dmg`
+            2. DMG 열어서 `MacFanControl.app`을 Applications 폴더로 드래그
+            3. 처음 실행 시 우클릭 → 열기 (Gatekeeper 우회)
+
+            ### 팬 속도 제어 요구사항
+            팬 최소 속도 조절 기능은 [smcFanControl](https://github.com/hholtmann/smcFanControl) 앱의 `smc` 바이너리가 필요합니다.
+            전원 모드(절전/기본) 전환은 별도 설치 없이 동작합니다.
