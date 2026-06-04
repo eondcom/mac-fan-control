@@ -6,7 +6,7 @@ from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
 import urllib.request, json, webbrowser
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
 
@@ -308,6 +308,64 @@ YELLOW  = '#f9e2af'
 PEACH   = '#fab387'
 RED     = '#f38ba8'
 
+# ── FlatBtn: macOS 네이티브 Button 렌더링을 우회하는 커스텀 버튼 ─────────────
+
+class FlatBtn(tk.Frame):
+    """Frame+Label 기반 완전 커스텀 버튼. macOS에서 fg 색상이 정확히 표시됨."""
+
+    def __init__(self, parent, text, bg, fg, command,
+                 font=('Helvetica Neue', 12, 'bold'),
+                 padx=12, pady=10,
+                 hover_bg=None, hover_fg=None,
+                 state='normal'):
+        super().__init__(parent, bg=bg)
+        self._bg  = bg;  self._fg  = fg
+        self._hbg = hover_bg or bg
+        self._hfg = hover_fg or fg
+        self._cmd = command
+        self._on  = (state == 'normal')
+        self._lbl = tk.Label(self, text=text, bg=bg, fg=fg, font=font,
+                              padx=padx, pady=pady, cursor='hand2' if self._on else '')
+        self._lbl.pack(fill='both', expand=True)
+        for w in (self, self._lbl):
+            w.bind('<Button-1>', self._click)
+            w.bind('<Enter>',    self._enter)
+            w.bind('<Leave>',    self._leave)
+
+    # ── 이벤트 핸들러 ────────────────────────────────────────────────────────
+    def _click(self, e=None):
+        if self._on and self._cmd: self._cmd()
+    def _enter(self, e=None):
+        if self._on:
+            super().configure(bg=self._hbg)
+            self._lbl.configure(bg=self._hbg, fg=self._hfg)
+    def _leave(self, e=None):
+        super().configure(bg=self._bg)
+        self._lbl.configure(bg=self._bg, fg=self._fg)
+
+    # ── 외부 API ─────────────────────────────────────────────────────────────
+    def set_colors(self, bg=None, fg=None, hover_bg=None, hover_fg=None):
+        if bg  is not None: self._bg  = bg
+        if fg  is not None: self._fg  = fg
+        if hover_bg is not None: self._hbg = hover_bg
+        if hover_fg is not None: self._hfg = hover_fg
+        super().configure(bg=self._bg)
+        self._lbl.configure(bg=self._bg, fg=self._fg)
+
+    def configure(self, **kw):
+        if 'text' in kw: self._lbl.configure(text=kw.pop('text'))
+        if 'state' in kw:
+            self._on = (kw.pop('state') == 'normal')
+            cur = 'hand2' if self._on else ''
+            self.config(cursor=cur); self._lbl.configure(cursor=cur)
+        if 'bg' in kw: self._bg = kw['bg']
+        if 'fg' in kw: self._fg = kw['fg']
+        if kw: super().configure(**kw)
+        super().configure(bg=self._bg)
+        self._lbl.configure(bg=self._bg, fg=self._fg)
+
+    config = configure
+
 # ── macOS 메뉴바 델리게이트 ──────────────────────────────────────────────────
 
 if _APPKIT:
@@ -350,10 +408,11 @@ class FanApp(tk.Tk):
         self.title('맥북 팬 관리')
         self.resizable(True, True)
         self.configure(bg=BG)
-        self._mode     = get_power_mode()
-        self._settings = load_settings()
-        self._mb_item  = None   # NSStatusItem
+        self._mode           = get_power_mode()
+        self._settings       = load_settings()
+        self._mb_item        = None   # NSStatusItem
         self._mb_show_win_mi = None
+        self._window_visible = True
         self._build()
         self._refresh()
         self._refresh_battery()
@@ -490,30 +549,29 @@ class FanApp(tk.Tk):
         preset_row = tk.Frame(t2, bg=BG)
         preset_row.pack(fill='x', padx=16, pady=(0, 10))
         self._preset_btns = []
-        preset_defs = [('🔇 저속', 1200, BLUE),
-                       ('🔁 일반', 2500, GREEN),
-                       ('🚀 고성능', 4500, RED)]
-        for label, rpm, accent in preset_defs:
-            b = tk.Button(
+        for label, rpm, accent in [('🔇 저속', 1200, BLUE),
+                                    ('🔁 일반', 2500, GREEN),
+                                    ('🚀 고성능', 4500, RED)]:
+            b = FlatBtn(
                 preset_row,
                 text=f'{label}\n{rpm:,} rpm',
                 bg=SURFACE, fg='#ffffff',
                 font=('Helvetica Neue', 13, 'bold'),
-                bd=0, pady=16, cursor='hand2', relief='flat', state=s_fan,
-                activebackground=accent, activeforeground='#1e1e2e',
+                padx=0, pady=18,
+                hover_bg=accent, hover_fg='#1e1e2e',
+                state=s_fan,
                 command=lambda r=rpm: self._apply_preset(r)
             )
-            b.bind('<Enter>', lambda e, w=b, a=accent: w.config(bg=a, fg='#1e1e2e'))
-            b.bind('<Leave>', lambda e, w=b: w.config(bg=SURFACE, fg='#ffffff'))
             b.pack(side='left', expand=True, fill='x', padx=4)
             self._preset_btns.append(b)
 
-        self._btn_fan_auto = tk.Button(
+        self._btn_fan_auto = FlatBtn(
             t2, text='🔄  자동 모드로 복구  (macOS 기본)',
             bg=SURFACE, fg='#ffffff',
             font=('Helvetica Neue', 12),
-            bd=0, pady=10, cursor='hand2', relief='flat', state=s_fan,
-            activebackground=BORDER, activeforeground='#ffffff',
+            padx=0, pady=10,
+            hover_bg=BORDER, hover_fg='#ffffff',
+            state=s_fan,
             command=self._reset_fan_auto
         )
         self._btn_fan_auto.pack(fill='x', padx=16, pady=(0, 14))
@@ -540,12 +598,13 @@ class FanApp(tk.Tk):
         self._slider.pack(fill='x', padx=16, pady=4)
         self._slider_val_lbl.config(text=f'{self._slider_var.get():,} rpm')
 
-        self._fan_apply_btn = tk.Button(
+        self._fan_apply_btn = FlatBtn(
             t2, text='  적용  ',
             bg=BLUE, fg='#1e1e2e',
             font=('Helvetica Neue', 14, 'bold'),
-            bd=0, padx=16, pady=10, cursor='hand2', relief='flat', state=s_fan,
-            activebackground='#5a9af0', activeforeground='#1e1e2e',
+            padx=16, pady=10,
+            hover_bg='#5a9af0', hover_fg='#1e1e2e',
+            state=s_fan,
             command=self._apply_fan_custom
         )
         self._fan_apply_btn.pack(fill='x', padx=16, pady=(6, 0))
@@ -580,16 +639,14 @@ class FanApp(tk.Tk):
     # ── 위젯 헬퍼 ────────────────────────────────────────────────────────────
 
     def _mode_btn(self, parent, text, color, mode):
-        btn = tk.Button(
-            parent, text=text, bg=SURFACE, fg='#ffffff',
+        return FlatBtn(
+            parent, text=text,
+            bg=SURFACE, fg='#ffffff',
             font=('Helvetica Neue', 12, 'bold'),
-            bd=0, padx=10, pady=9, cursor='hand2', relief='flat',
-            activebackground=color, activeforeground='#1e1e2e',
+            padx=10, pady=9,
+            hover_bg=color, hover_fg='#1e1e2e',
             command=lambda: self._apply_mode(mode)
         )
-        btn.bind('<Enter>', lambda e: btn.config(bg=color, fg='#1e1e2e'))
-        btn.bind('<Leave>', lambda e: self._update_mode_ui())
-        return btn
 
     # ── macOS 메뉴바 위젯 ──────────────────────────────────────────────────────
 
@@ -621,10 +678,10 @@ class FanApp(tk.Tk):
             # ── 델리게이트 ───────────────────────────────────────────────────
             delegate = _MenuBarDelegate.alloc().init()
             delegate.set_callbacks(
-                lambda: self.after(0, self._toggle_window),
-                lambda: self.after(0, self._quit_app),
-                lambda v: self.after(0, self._on_toggle_temp, v),
-                lambda v: self.after(0, self._on_toggle_fan,  v),
+                lambda: self.after(80, self._toggle_window),
+                lambda: self._do_quit(),
+                lambda v: self.after(80, self._on_toggle_temp, v),
+                lambda v: self.after(80, self._on_toggle_fan,  v),
             )
             self._mb_delegate = delegate
 
@@ -679,29 +736,51 @@ class FanApp(tk.Tk):
         return mi
 
     def _toggle_window(self):
-        if self.winfo_viewable():
+        try:
+            if self._window_visible:
+                self.withdraw()
+                self._window_visible = False
+                if self._mb_show_win_mi:
+                    self._mb_show_win_mi.setTitle_('앱 열기')
+            else:
+                self.deiconify()
+                self.lift()
+                self.focus_force()
+                self._window_visible = True
+                if self._mb_show_win_mi:
+                    self._mb_show_win_mi.setTitle_('앱 숨기기')
+        except Exception:
+            pass
+
+    def _hide_window(self):
+        try:
             self.withdraw()
+            self._window_visible = False
             if self._mb_show_win_mi:
                 self._mb_show_win_mi.setTitle_('앱 열기')
-        else:
+        except Exception:
+            pass
+
+    def _bring_to_front(self):
+        try:
             self.deiconify()
             self.lift()
             self.focus_force()
-            if self._mb_show_win_mi:
-                self._mb_show_win_mi.setTitle_('앱 숨기기')
+            self._window_visible = True
+        except Exception:
+            pass
 
-    def _hide_window(self):
-        self.withdraw()
-        if self._mb_show_win_mi:
-            self._mb_show_win_mi.setTitle_('앱 열기')
-
-    def _bring_to_front(self):
-        self.deiconify()
-        self.lift()
-        self.focus_force()
+    def _do_quit(self):
+        """메뉴바 콜백에서 직접 호출 — os._exit으로 클린 종료."""
+        try:
+            if _APPKIT and self._mb_item:
+                NSStatusBar.systemStatusBar().removeStatusItem_(self._mb_item)
+        except Exception:
+            pass
+        os._exit(0)
 
     def _quit_app(self):
-        self.destroy()
+        self._do_quit()
 
     def _on_toggle_temp(self, val: bool):
         self._settings['mb_show_temp'] = val
@@ -719,10 +798,14 @@ class FanApp(tk.Tk):
             'normal': '⚡ 기본 모드 활성 — macOS 기본 전원 관리',
         }
         is_low = self._mode == 'low'
-        self._btn_low.config(bg=BLUE if is_low else SURFACE,
-                             fg='#1e1e2e' if is_low else '#ffffff')
-        self._btn_normal.config(bg=GREEN if not is_low else SURFACE,
-                                fg='#1e1e2e' if not is_low else '#ffffff')
+        self._btn_low.set_colors(
+            bg=BLUE if is_low else SURFACE,
+            fg='#1e1e2e' if is_low else '#ffffff',
+            hover_bg=BLUE, hover_fg='#1e1e2e')
+        self._btn_normal.set_colors(
+            bg=GREEN if not is_low else SURFACE,
+            fg='#1e1e2e' if not is_low else '#ffffff',
+            hover_bg=GREEN, hover_fg='#1e1e2e')
         mode_txt = '🌙 절전' if is_low else '⚡ 기본'
         self._mode_lbl.config(text=mode_txt,
                                fg=BLUE if is_low else GREEN)
@@ -758,9 +841,9 @@ class FanApp(tk.Tk):
         mode_txt = '🔧 수동' if fan_manual else '🔄 자동'
         mode_col = YELLOW if fan_manual else GREEN
         self._fan_mode_lbl.config(text=mode_txt, fg=mode_col)
-        self._btn_fan_auto.config(
+        self._btn_fan_auto.set_colors(
             bg=BLUE if fan_manual else SURFACE,
-            fg=BG if fan_manual else SUBTEXT)
+            fg='#1e1e2e' if fan_manual else '#ffffff')
 
         # 메뉴바 위젯 업데이트
         if self._mb_item:
@@ -807,6 +890,10 @@ class FanApp(tk.Tk):
     # ── 팬 액션 ──────────────────────────────────────────────────────────────
 
     def _apply_preset(self, rpm):
+        # 슬라이더를 선택된 프리셋 RPM에 맞춤
+        clamped = max(1200, min(6000, rpm))
+        self._slider_var.set(clamped)
+        self._slider_val_lbl.config(text=f'{clamped:,} rpm')
         self._set_fan_busy(True)
         def worker():
             ok = set_fan_speed(rpm)
@@ -819,7 +906,7 @@ class FanApp(tk.Tk):
         def worker():
             ok = set_fan_speed(rpm)
             self.after(0, self._on_fan_set_done, ok, rpm)
-            self.after(0, lambda: self._fan_apply_btn.config(state='normal', text='적용'))
+            self.after(0, lambda: self._fan_apply_btn.config(state='normal', text='  적용  '))
         threading.Thread(target=worker, daemon=True).start()
 
     def _reset_fan_auto(self):
@@ -837,7 +924,7 @@ class FanApp(tk.Tk):
             messagebox.showerror('실패', f'팬 설정 실패\nsmc 경로: {SMC or "없음"}')
 
     def _on_fan_auto_done(self, ok):
-        self._btn_fan_auto.config(state='normal', text='🔄 자동 모드로 복구 (macOS 기본)')
+        self._btn_fan_auto.config(state='normal', text='🔄  자동 모드로 복구  (macOS 기본)')
         if ok:
             self.after(1500, self._refresh)
         else:
