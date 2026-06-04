@@ -3,7 +3,7 @@
 
 import tkinter as tk
 from tkinter import messagebox
-import subprocess, threading, re, time, shutil, os, sys, tempfile
+import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
 import urllib.request, json, webbrowser
 
 VERSION = "1.0.4"
@@ -44,6 +44,15 @@ def _smc_read_decimal(key):
     if not SMC:
         return None
     out, _ = shell(f'"{SMC}" -k {key} -r 2>/dev/null')
+    # flt 포맷: "F0Ac  [flt ]  (bytes f5 b6 07 45)"
+    m_flt = re.search(r'\[flt\s*\].*\(bytes\s+([0-9a-f]{2})\s+([0-9a-f]{2})\s+([0-9a-f]{2})\s+([0-9a-f]{2})', out)
+    if m_flt:
+        try:
+            raw = bytes.fromhex(''.join(m_flt.groups()))
+            return struct.unpack('<f', raw)[0]
+        except Exception:
+            pass
+    # 소수 포맷: "123.45 (bytes ...)"
     m = re.search(r'([\d]+\.[\d]+)\s*\(bytes', out)
     if m:
         try:
@@ -70,7 +79,7 @@ def get_thermal():
     # 팬 속도 폴백 — smc -f (Current speed 라인)
     if fan_rpm is None and SMC:
         out, _ = shell(f'"{SMC}" -f 2>/dev/null')
-        m = re.search(r'[Cc]urrent\s+[Ss]peed\s*:\s*(\d+)', out)
+        m = re.search(r'(?:[Cc]urrent|[Aa]ctual)\s+[Ss]peed\s*:\s*(\d+)', out)
         if m:
             fan_rpm = int(m.group(1))
 
