@@ -6,18 +6,36 @@ from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
 import urllib.request, json, webbrowser
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
+GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
+SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
+
+# ── 설정 저장/불러오기 ────────────────────────────────────────────────────────
+
+def load_settings():
+    defaults = {'mb_show_temp': True, 'mb_show_fan': True}
+    try:
+        with open(SETTINGS_PATH) as f:
+            defaults.update(json.load(f))
+    except Exception:
+        pass
+    return defaults
+
+def save_settings(s):
+    try:
+        with open(SETTINGS_PATH, 'w') as f:
+            json.dump(s, f, indent=2)
+    except Exception:
+        pass
 
 # ── macOS 메뉴바 위젯 (PyObjC) ───────────────────────────────────────────────
 try:
     import objc
     from AppKit import (NSStatusBar, NSMenu, NSMenuItem, NSObject,
                         NSApplication, NSImage, NSSize)
-    from Foundation import NSString
     _APPKIT = True
 except ImportError:
     _APPKIT = False
-GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 
 # ── smc 바이너리 탐색 ────────────────────────────────────────────────────────
 SMC_CANDIDATES = [
@@ -294,21 +312,33 @@ RED     = '#f38ba8'
 
 if _APPKIT:
     class _MenuBarDelegate(NSObject):
-        _show_cb = None
-        _quit_cb = None
+        _show_cb        = None
+        _quit_cb        = None
+        _toggle_temp_cb = None
+        _toggle_fan_cb  = None
 
         @objc.python_method
-        def set_callbacks(self, show_cb, quit_cb):
-            self._show_cb = show_cb
-            self._quit_cb = quit_cb
+        def set_callbacks(self, show_cb, quit_cb, toggle_temp_cb, toggle_fan_cb):
+            self._show_cb        = show_cb
+            self._quit_cb        = quit_cb
+            self._toggle_temp_cb = toggle_temp_cb
+            self._toggle_fan_cb  = toggle_fan_cb
 
         def showApp_(self, sender):
-            if self._show_cb:
-                self._show_cb()
+            if self._show_cb: self._show_cb()
 
         def quitApp_(self, sender):
-            if self._quit_cb:
-                self._quit_cb()
+            if self._quit_cb: self._quit_cb()
+
+        def toggleTemp_(self, sender):
+            new = 1 - sender.state()
+            sender.setState_(new)
+            if self._toggle_temp_cb: self._toggle_temp_cb(bool(new))
+
+        def toggleFan_(self, sender):
+            new = 1 - sender.state()
+            sender.setState_(new)
+            if self._toggle_fan_cb: self._toggle_fan_cb(bool(new))
 else:
     _MenuBarDelegate = None
 
@@ -320,8 +350,10 @@ class FanApp(tk.Tk):
         self.title('맥북 팬 관리')
         self.resizable(True, True)
         self.configure(bg=BG)
-        self._mode = get_power_mode()
-        self._mb_item = None   # NSStatusItem (메뉴바 위젯)
+        self._mode     = get_power_mode()
+        self._settings = load_settings()
+        self._mb_item  = None   # NSStatusItem
+        self._mb_show_win_mi = None
         self._build()
         self._refresh()
         self._refresh_battery()
@@ -329,6 +361,8 @@ class FanApp(tk.Tk):
         threading.Thread(target=self._auto_check_update, daemon=True).start()
         if _APPKIT:
             self.after(200, self._setup_menubar)
+        # 창 닫기 → 숨기기 (메뉴바 앱으로 계속 실행)
+        self.protocol('WM_DELETE_WINDOW', self._hide_window)
 
     # ── 레이아웃 ─────────────────────────────────────────────────────────────
 
@@ -456,30 +490,30 @@ class FanApp(tk.Tk):
         preset_row = tk.Frame(t2, bg=BG)
         preset_row.pack(fill='x', padx=16, pady=(0, 10))
         self._preset_btns = []
-        preset_defs = [('🔇 저속', 1200, BLUE, '#1a2a40'),
-                       ('🔁 일반', 2500, GREEN, '#1a301e'),
-                       ('🚀 고성능', 4500, RED, '#301a1e')]
-        for label, rpm, accent, hover_bg in preset_defs:
+        preset_defs = [('🔇 저속', 1200, BLUE),
+                       ('🔁 일반', 2500, GREEN),
+                       ('🚀 고성능', 4500, RED)]
+        for label, rpm, accent in preset_defs:
             b = tk.Button(
                 preset_row,
                 text=f'{label}\n{rpm:,} rpm',
-                bg=SURFACE, fg=TEXT,
+                bg=SURFACE, fg='#ffffff',
                 font=('Helvetica Neue', 13, 'bold'),
                 bd=0, pady=16, cursor='hand2', relief='flat', state=s_fan,
-                activebackground=accent, activeforeground=BG,
+                activebackground=accent, activeforeground='#1e1e2e',
                 command=lambda r=rpm: self._apply_preset(r)
             )
-            b.bind('<Enter>', lambda e, w=b, a=accent: w.config(bg=a, fg=TEXT))
-            b.bind('<Leave>', lambda e, w=b: w.config(bg=SURFACE, fg=TEXT))
+            b.bind('<Enter>', lambda e, w=b, a=accent: w.config(bg=a, fg='#1e1e2e'))
+            b.bind('<Leave>', lambda e, w=b: w.config(bg=SURFACE, fg='#ffffff'))
             b.pack(side='left', expand=True, fill='x', padx=4)
             self._preset_btns.append(b)
 
         self._btn_fan_auto = tk.Button(
             t2, text='🔄  자동 모드로 복구  (macOS 기본)',
-            bg=SURFACE, fg=SUBTEXT,
+            bg=SURFACE, fg='#ffffff',
             font=('Helvetica Neue', 12),
             bd=0, pady=10, cursor='hand2', relief='flat', state=s_fan,
-            activebackground=BORDER, activeforeground=TEXT,
+            activebackground=BORDER, activeforeground='#ffffff',
             command=self._reset_fan_auto
         )
         self._btn_fan_auto.pack(fill='x', padx=16, pady=(0, 14))
@@ -509,7 +543,7 @@ class FanApp(tk.Tk):
         self._fan_apply_btn = tk.Button(
             t2, text='  적용  ',
             bg=BLUE, fg='#1e1e2e',
-            font=('Helvetica Neue', 13, 'bold'),
+            font=('Helvetica Neue', 14, 'bold'),
             bd=0, padx=16, pady=10, cursor='hand2', relief='flat', state=s_fan,
             activebackground='#5a9af0', activeforeground='#1e1e2e',
             command=self._apply_fan_custom
@@ -547,13 +581,13 @@ class FanApp(tk.Tk):
 
     def _mode_btn(self, parent, text, color, mode):
         btn = tk.Button(
-            parent, text=text, bg=SURFACE, fg=TEXT,
+            parent, text=text, bg=SURFACE, fg='#ffffff',
             font=('Helvetica Neue', 12, 'bold'),
             bd=0, padx=10, pady=9, cursor='hand2', relief='flat',
-            activebackground=color, activeforeground=BG,
+            activebackground=color, activeforeground='#1e1e2e',
             command=lambda: self._apply_mode(mode)
         )
-        btn.bind('<Enter>', lambda e: btn.config(bg=color, fg=BG))
+        btn.bind('<Enter>', lambda e: btn.config(bg=color, fg='#1e1e2e'))
         btn.bind('<Leave>', lambda e: self._update_mode_ui())
         return btn
 
@@ -565,39 +599,69 @@ class FanApp(tk.Tk):
         try:
             sb = NSStatusBar.systemStatusBar()
             self._mb_item = sb.statusItemWithLength_(-1)
-            self._mb_item.setTitle_("🌡️ —")
+            self._mb_item.setTitle_('🌡️ —')
 
             menu = NSMenu.alloc().init()
             menu.setAutoenablesItems_(False)
 
-            # 앱 이름 (비활성)
-            title_mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            # ── 앱 이름 ─────────────────────────────────────────────────────
+            hd = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
                 f'맥북 팬 관리  v{VERSION}', None, '')
-            title_mi.setEnabled_(False)
-            menu.addItem_(title_mi)
+            hd.setEnabled_(False)
+            menu.addItem_(hd)
             menu.addItem_(NSMenuItem.separatorItem())
 
-            # 상태 항목들 (비활성 — 정보 표시용)
-            self._mb_cpu_mi  = self._mb_info_item(menu, 'CPU  —')
-            self._mb_gpu_mi  = self._mb_info_item(menu, 'GPU  —')
-            self._mb_fan_mi  = self._mb_info_item(menu, '팬    —')
-            self._mb_bat_mi  = self._mb_info_item(menu, '배터리  —')
+            # ── 실시간 상태 (읽기 전용) ──────────────────────────────────────
+            self._mb_cpu_mi = self._mb_info_item(menu, 'CPU  ——')
+            self._mb_gpu_mi = self._mb_info_item(menu, 'GPU  ——')
+            self._mb_fan_mi = self._mb_info_item(menu, '팬    ——')
+            self._mb_bat_mi = self._mb_info_item(menu, '배터리  ——')
             menu.addItem_(NSMenuItem.separatorItem())
 
-            # 앱 열기 / 종료
+            # ── 델리게이트 ───────────────────────────────────────────────────
             delegate = _MenuBarDelegate.alloc().init()
             delegate.set_callbacks(
-                lambda: self.after(0, self._bring_to_front),
-                lambda: self.after(0, self.destroy)
+                lambda: self.after(0, self._toggle_window),
+                lambda: self.after(0, self._quit_app),
+                lambda v: self.after(0, self._on_toggle_temp, v),
+                lambda v: self.after(0, self._on_toggle_fan,  v),
             )
-            self._mb_delegate = delegate  # 참조 유지
+            self._mb_delegate = delegate
 
-            show_mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                '앱 열기', 'showApp:', '')
-            show_mi.setTarget_(delegate)
-            show_mi.setEnabled_(True)
-            menu.addItem_(show_mi)
+            # ── 앱 열기/숨기기 ───────────────────────────────────────────────
+            self._mb_show_win_mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                '앱 숨기기', 'showApp:', '')
+            self._mb_show_win_mi.setTarget_(delegate)
+            self._mb_show_win_mi.setEnabled_(True)
+            menu.addItem_(self._mb_show_win_mi)
+            menu.addItem_(NSMenuItem.separatorItem())
 
+            # ── 표시 설정 서브메뉴 ────────────────────────────────────────────
+            sub_menu = NSMenu.alloc().init()
+            sub_menu.setAutoenablesItems_(False)
+
+            self._mb_temp_toggle = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                'CPU 온도 표시', 'toggleTemp:', '')
+            self._mb_temp_toggle.setTarget_(delegate)
+            self._mb_temp_toggle.setEnabled_(True)
+            self._mb_temp_toggle.setState_(1 if self._settings['mb_show_temp'] else 0)
+            sub_menu.addItem_(self._mb_temp_toggle)
+
+            self._mb_fan_toggle = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                '팬 속도 표시', 'toggleFan:', '')
+            self._mb_fan_toggle.setTarget_(delegate)
+            self._mb_fan_toggle.setEnabled_(True)
+            self._mb_fan_toggle.setState_(1 if self._settings['mb_show_fan'] else 0)
+            sub_menu.addItem_(self._mb_fan_toggle)
+
+            display_mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                '메뉴바 표시 설정', None, '')
+            display_mi.setEnabled_(True)
+            display_mi.setSubmenu_(sub_menu)
+            menu.addItem_(display_mi)
+            menu.addItem_(NSMenuItem.separatorItem())
+
+            # ── 종료 ────────────────────────────────────────────────────────
             quit_mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
                 '종료', 'quitApp:', 'q')
             quit_mi.setTarget_(delegate)
@@ -605,8 +669,8 @@ class FanApp(tk.Tk):
             menu.addItem_(quit_mi)
 
             self._mb_item.setMenu_(menu)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f'menubar setup error: {e}')
 
     def _mb_info_item(self, menu, text):
         mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(text, None, '')
@@ -614,10 +678,38 @@ class FanApp(tk.Tk):
         menu.addItem_(mi)
         return mi
 
+    def _toggle_window(self):
+        if self.winfo_viewable():
+            self.withdraw()
+            if self._mb_show_win_mi:
+                self._mb_show_win_mi.setTitle_('앱 열기')
+        else:
+            self.deiconify()
+            self.lift()
+            self.focus_force()
+            if self._mb_show_win_mi:
+                self._mb_show_win_mi.setTitle_('앱 숨기기')
+
+    def _hide_window(self):
+        self.withdraw()
+        if self._mb_show_win_mi:
+            self._mb_show_win_mi.setTitle_('앱 열기')
+
     def _bring_to_front(self):
         self.deiconify()
         self.lift()
         self.focus_force()
+
+    def _quit_app(self):
+        self.destroy()
+
+    def _on_toggle_temp(self, val: bool):
+        self._settings['mb_show_temp'] = val
+        save_settings(self._settings)
+
+    def _on_toggle_fan(self, val: bool):
+        self._settings['mb_show_fan'] = val
+        save_settings(self._settings)
 
     # ── 상태 업데이트 ─────────────────────────────────────────────────────────
 
@@ -628,9 +720,9 @@ class FanApp(tk.Tk):
         }
         is_low = self._mode == 'low'
         self._btn_low.config(bg=BLUE if is_low else SURFACE,
-                             fg=BG   if is_low else TEXT)
+                             fg='#1e1e2e' if is_low else '#ffffff')
         self._btn_normal.config(bg=GREEN if not is_low else SURFACE,
-                                fg=BG    if not is_low else TEXT)
+                                fg='#1e1e2e' if not is_low else '#ffffff')
         mode_txt = '🌙 절전' if is_low else '⚡ 기본'
         self._mode_lbl.config(text=mode_txt,
                                fg=BLUE if is_low else GREEN)
@@ -672,13 +764,19 @@ class FanApp(tk.Tk):
 
         # 메뉴바 위젯 업데이트
         if self._mb_item:
-            mb_title = f'🌡️ {cpu_txt.split()[0]}' if cpu_temp else '🌡️ —'
-            self._mb_item.setTitle_(mb_title)
-            self._mb_cpu_mi.setTitle_(f'CPU     {cpu_txt}')
-            self._mb_gpu_mi.setTitle_(f'GPU     {gpu_txt}')
-            self._mb_fan_mi.setTitle_(f'팬       {fan_txt}')
+            cpu_short = cpu_txt.split()[0] if cpu_temp else '—'
+            fan_short = fan_txt.split()[0] if fan_rpm else '—'
+            show_t = self._settings.get('mb_show_temp', True)
+            show_f = self._settings.get('mb_show_fan',  True)
+            parts = []
+            if show_t: parts.append(f'🌡️{cpu_short}')
+            if show_f: parts.append(f'🌀{fan_short}')
+            self._mb_item.setTitle_('  '.join(parts) if parts else '🖥️')
+            self._mb_cpu_mi.setTitle_(f'CPU      {cpu_txt}')
+            self._mb_gpu_mi.setTitle_(f'GPU      {gpu_txt}')
+            self._mb_fan_mi.setTitle_(f'팬        {fan_txt}')
             bat_t_short = bat_txt.split()[0] if battery_temp else '—'
-            self._mb_bat_mi.setTitle_(f'배터리  {bat_t_short}')
+            self._mb_bat_mi.setTitle_(f'배터리   {bat_t_short}')
 
     def _schedule_refresh(self):
         def loop():
