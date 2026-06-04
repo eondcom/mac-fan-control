@@ -6,7 +6,7 @@ from tkinter import messagebox
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
 import urllib.request, json, webbrowser
 
-VERSION = "1.0.4"
+VERSION = "1.0.7"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 
 # ── smc 바이너리 탐색 ────────────────────────────────────────────────────────
@@ -62,26 +62,48 @@ def _smc_read_decimal(key):
     return None
 
 def get_thermal():
-    cpu_temp = fan_rpm = None
+    cpu_temp = gpu_temp = battery_temp = fan_rpm = fan_min = fan_max = None
 
-    # CPU 온도 — 모델마다 키 다름
+    # CPU 온도
     for key in ('TC0P', 'TC0D', 'TC0H', 'TCXC', 'Ts0S'):
         val = _smc_read_decimal(key)
         if val and 0 < val < 120:
             cpu_temp = val
             break
 
-    # 팬 속도 — F0Ac 직접 읽기
-    fan_val = _smc_read_decimal('F0Ac')
-    if fan_val and fan_val > 0:
-        fan_rpm = int(fan_val)
+    # GPU 온도
+    val = _smc_read_decimal('TG0P')
+    if val and 0 < val < 120:
+        gpu_temp = val
 
-    # 팬 속도 폴백 — smc -f (Current speed 라인)
+    # 배터리 온도
+    val = _smc_read_decimal('TB0T')
+    if val and 0 < val < 80:
+        battery_temp = val
+
+    # 팬 현재/최소/최대 속도
+    val = _smc_read_decimal('F0Ac')
+    if val and val > 0:
+        fan_rpm = int(val)
+    val = _smc_read_decimal('F0Mn')
+    if val and val > 0:
+        fan_min = int(val)
+    val = _smc_read_decimal('F0Mx')
+    if val and val > 0:
+        fan_max = int(val)
+
+    # 팬 속도 폴백 — smc -f
     if fan_rpm is None and SMC:
         out, _ = shell(f'"{SMC}" -f 2>/dev/null')
         m = re.search(r'(?:[Cc]urrent|[Aa]ctual)\s+[Ss]peed\s*:\s*(\d+)', out)
         if m:
             fan_rpm = int(m.group(1))
+        m = re.search(r'[Mm]inimum\s+[Ss]peed\s*:\s*(\d+)', out)
+        if m:
+            fan_min = int(m.group(1))
+        m = re.search(r'[Mm]aximum\s+[Ss]peed\s*:\s*(\d+)', out)
+        if m:
+            fan_max = int(m.group(1))
 
     # 팬 속도 폴백 — ioreg
     if fan_rpm is None:
@@ -98,26 +120,57 @@ def get_thermal():
             val = float(m.group(1))
             cpu_temp = val / 100.0 if val > 1000 else val
 
-    return cpu_temp, fan_rpm
+    # 팬 모드 (0=자동, 1=수동)
+    fan_manual = False
+    if SMC:
+        out, _ = shell(f'"{SMC}" -k F0Md -r 2>/dev/null')
+        m = re.search(r'\(bytes\s+([0-9a-f]{2})', out)
+        if m and m.group(1) != '00':
+            fan_manual = True
 
-def get_fan_min_rpm():
-    if not SMC:
-        return None
-    val = _smc_read_decimal('F0Mn')
-    if val and val > 0:
-        return int(val)
-    return None
+    return cpu_temp, gpu_temp, battery_temp, fan_rpm, fan_min, fan_max, fan_manual
 
-def set_fan_min_rpm(rpm):
+def get_battery_info():
+    """충전 횟수, 용량(%), 잔여 시간, 상태 반환."""
+    out, _ = shell('system_profiler SPPowerDataType 2>/dev/null')
+    cycle = capacity = condition = None
+    m = re.search(r'Cycle Count:\s*(\d+)', out)
+    if m:
+        cycle = int(m.group(1))
+    m = re.search(r'Maximum Capacity:\s*(\d+)\s*%', out)
+    if m:
+        capacity = int(m.group(1))
+    m = re.search(r'Condition:\s*(\S+)', out)
+    if m:
+        condition = m.group(1)
+
+    # 잔여 시간 — pmset
+    out2, _ = shell('pmset -g batt 2>/dev/null')
+    remain = None
+    m2 = re.search(r'(\d+:\d+)\s+remaining', out2)
+    if m2:
+        remain = m2.group(1)
+    charging = 'charging' in out2.lower() or 'AC' in out2
+
+    return cycle, capacity, condition, remain, charging
+
+def set_fan_speed(rpm):
+    """F0Md/F1Md=1(수동) + F0Tg/F1Tg=rpm. smc 바이너리가 setuid root라 비번 불필요."""
     if not SMC:
         return False
-    raw = rpm * 4
-    return admin(f'"{SMC}" -k F0Mn -w {raw:08x}')
+    raw = struct.pack('<f', float(rpm)).hex()
+    for key_md, key_tg in [('F0Md', 'F0Tg'), ('F1Md', 'F1Tg')]:
+        shell(f'"{SMC}" -k {key_md} -w 01')
+        shell(f'"{SMC}" -k {key_tg} -w {raw}')
+    return True
 
-def reset_fan():
+def reset_fan_to_auto():
+    """F0Md/F1Md=0 으로 자동 모드 복구. 비번 불필요."""
     if not SMC:
         return False
-    return admin(f'"{SMC}" -k F0Mn -w 000012c0')
+    shell(f'"{SMC}" -k F0Md -w 00')
+    shell(f'"{SMC}" -k F1Md -w 00')
+    return True
 
 # ── 상태 레이블 ──────────────────────────────────────────────────────────────
 
@@ -238,13 +291,14 @@ class FanApp(tk.Tk):
         self._mode = get_power_mode()
         self._build()
         self._refresh()
+        self._refresh_battery()
         self._schedule_refresh()
         threading.Thread(target=self._auto_check_update, daemon=True).start()
 
     # ── 레이아웃 ─────────────────────────────────────────────────────────────
 
     def _build(self):
-        self.geometry('380x570')
+        self.geometry('380x780')
 
         # 제목
         tk.Label(self, text='맥북 팬 · 전원 관리',
@@ -260,9 +314,12 @@ class FanApp(tk.Tk):
         # 상태 카드
         card = self._card()
         card.pack(fill='x', padx=18, pady=4)
-        self._mode_lbl = self._stat_row(card, '전원 모드')
-        self._temp_lbl = self._stat_row(card, 'CPU 온도')
-        self._fan_lbl  = self._stat_row(card, '팬 속도')
+        self._mode_lbl    = self._stat_row(card, '전원 모드')
+        self._temp_lbl    = self._stat_row(card, 'CPU 온도')
+        self._gpu_lbl     = self._stat_row(card, 'GPU 온도')
+        self._bat_lbl     = self._stat_row(card, '배터리')
+        self._fan_lbl     = self._stat_row(card, '팬(현재)')
+        self._fan_rng_lbl = self._stat_row(card, '팬(범위)')
 
         # 전원 모드
         self._section('전원 모드').pack(fill='x', padx=18, pady=(12, 4))
@@ -277,49 +334,83 @@ class FanApp(tk.Tk):
         self._hint_lbl.pack(anchor='w', padx=18, pady=(4, 0))
         self._update_mode_ui()
 
-        # 팬 최소 속도
-        tk.Frame(self, bg=BORDER, height=1).pack(fill='x', padx=18, pady=12)
+        # 배터리 정보
+        tk.Frame(self, bg=BORDER, height=1).pack(fill='x', padx=18, pady=8)
+        self._section('배터리').pack(anchor='w', padx=18, pady=(0, 4))
+        bat_card = self._card()
+        bat_card.pack(fill='x', padx=18, pady=0)
+        self._bat_cycle_lbl   = self._stat_row(bat_card, '충전 횟수')
+        self._bat_cap_lbl     = self._stat_row(bat_card, '최대 용량')
+        self._bat_remain_lbl  = self._stat_row(bat_card, '잔여 시간')
+        self._bat_status_lbl  = self._stat_row(bat_card, '상태')
+
+        # 팬 속도 제어
+        tk.Frame(self, bg=BORDER, height=1).pack(fill='x', padx=18, pady=8)
         fan_hdr = tk.Frame(self, bg=BG)
-        fan_hdr.pack(fill='x', padx=18)
-        self._section('팬 최소 속도', parent=fan_hdr).pack(side='left')
-        self._slider_val_lbl = tk.Label(fan_hdr, bg=BG, fg=BLUE,
+        fan_hdr.pack(fill='x', padx=18, pady=(0, 4))
+        self._section('팬 속도 제어', parent=fan_hdr).pack(side='left')
+        self._fan_mode_lbl = tk.Label(fan_hdr, bg=BG, fg=DIM,
+                                      font=('Helvetica Neue', 10))
+        self._fan_mode_lbl.pack(side='right')
+
+        # 프리셋 버튼 (3개)
+        preset_row = tk.Frame(self, bg=BG)
+        preset_row.pack(fill='x', padx=18, pady=(0, 4))
+        for label, rpm, color in [('🔇 저속', 1200, BLUE),
+                                   ('🔁 일반', 2500, GREEN),
+                                   ('🚀 고성능', 4500, RED)]:
+            s = 'normal' if SMC else 'disabled'
+            tk.Button(
+                preset_row, text=f'{label}\n{rpm:,} rpm',
+                bg=SURFACE, fg=TEXT, font=('Helvetica Neue', 11, 'bold'),
+                bd=0, pady=8, cursor='hand2', relief='flat', state=s,
+                command=lambda r=rpm: self._apply_preset(r)
+            ).pack(side='left', expand=True, fill='x', padx=2)
+
+        # 자동 복구 버튼
+        self._btn_fan_auto = tk.Button(
+            self, text='🔄 자동 모드로 복구 (macOS 기본)',
+            bg=SURFACE, fg=SUBTEXT, font=('Helvetica Neue', 11),
+            bd=0, pady=6, cursor='hand2', relief='flat',
+            state='normal' if SMC else 'disabled',
+            command=self._reset_fan_auto
+        )
+        self._btn_fan_auto.pack(fill='x', padx=18, pady=(0, 2))
+
+        # 슬라이더 (커스텀 RPM)
+        fan_sl_hdr = tk.Frame(self, bg=BG)
+        fan_sl_hdr.pack(fill='x', padx=18, pady=(6, 2))
+        self._section('커스텀 RPM', parent=fan_sl_hdr).pack(side='left')
+        self._slider_val_lbl = tk.Label(fan_sl_hdr, bg=BG, fg=BLUE,
                                         font=('Helvetica Neue', 12, 'bold'))
         self._slider_val_lbl.pack(side='right')
 
-        self._slider_var = tk.IntVar(value=1200)
-        state = 'normal' if SMC else 'disabled'
+        s = 'normal' if SMC else 'disabled'
+        self._slider_var = tk.IntVar(value=2500)
         self._slider = tk.Scale(
             self, from_=1200, to=6000, resolution=100,
             orient='horizontal', variable=self._slider_var,
             bg=BG, fg=TEXT, troughcolor=SURFACE,
             highlightthickness=0, sliderrelief='flat',
-            activebackground=BLUE, showvalue=False, state=state,
+            activebackground=BLUE, showvalue=False, state=s,
             command=lambda v: self._slider_val_lbl.config(text=f'{int(v):,} rpm')
         )
-        self._slider.pack(fill='x', padx=18, pady=4)
+        self._slider.pack(fill='x', padx=18, pady=2)
         self._slider_val_lbl.config(text=f'{self._slider_var.get():,} rpm')
 
-        fan_btns = tk.Frame(self, bg=BG)
-        fan_btns.pack(fill='x', padx=18, pady=4)
         self._fan_apply_btn = tk.Button(
-            fan_btns, text='최소 속도 적용',
+            self, text='적용',
             bg=BLUE, fg=BG, font=('Helvetica Neue', 12, 'bold'),
-            bd=0, padx=12, pady=7, cursor='hand2', relief='flat',
-            state=state, command=self._apply_fan_min
+            bd=0, padx=12, pady=6, cursor='hand2', relief='flat', state=s,
+            command=self._apply_fan_custom
         )
-        self._fan_apply_btn.pack(side='left', expand=True, fill='x', padx=(0, 4))
-        self._fan_reset_btn = tk.Button(
-            fan_btns, text='초기화',
-            bg=SURFACE, fg=SUBTEXT, font=('Helvetica Neue', 12),
-            bd=0, padx=12, pady=7, cursor='hand2', relief='flat',
-            state=state, command=self._reset_fan
-        )
-        self._fan_reset_btn.pack(side='left', expand=True, fill='x')
+        self._fan_apply_btn.pack(fill='x', padx=18, pady=(2, 0))
 
         if not SMC:
-            tk.Label(self, text='⚠  smc 도구 필요 → smcFanControl 앱 설치 후 사용 가능',
+            tk.Label(self,
+                     text='⚠  smcFanControl 앱이 설치되어 있어야 팬 제어가 가능합니다.',
                      bg=BG, fg=DIM, font=('Helvetica Neue', 10), wraplength=340
-                     ).pack(padx=18, pady=(2, 0))
+                     ).pack(padx=18, pady=(4, 0))
 
         # 하단
         bottom = tk.Frame(self, bg=BG)
@@ -382,19 +473,33 @@ class FanApp(tk.Tk):
         self._hint_lbl.config(text=hints.get(self._mode, ''))
 
     def _refresh(self):
-        cpu_temp, fan_rpm = get_thermal()
+        cpu_temp, gpu_temp, battery_temp, fan_rpm, fan_min, fan_max, fan_manual = get_thermal()
 
         txt, col = temp_label(cpu_temp)
         self._temp_lbl.config(text=txt, fg=col)
 
+        txt, col = temp_label(gpu_temp)
+        self._gpu_lbl.config(text=txt, fg=col)
+
+        txt, col = temp_label(battery_temp)
+        self._bat_lbl.config(text=txt, fg=col)
+
         txt, col = fan_label(fan_rpm)
         self._fan_lbl.config(text=txt, fg=col)
 
-        if SMC:
-            min_rpm = get_fan_min_rpm()
-            if min_rpm:
-                self._slider_var.set(min_rpm)
-                self._slider_val_lbl.config(text=f'{min_rpm:,} rpm')
+        if fan_min is not None and fan_max is not None:
+            self._fan_rng_lbl.config(text=f'{fan_min:,} ~ {fan_max:,} rpm', fg=DIM)
+        else:
+            self._fan_rng_lbl.config(text='N/A', fg=DIM)
+
+        # 팬 모드 표시
+        mode_txt = '🔧 수동' if fan_manual else '🔄 자동'
+        mode_col = YELLOW if fan_manual else GREEN
+        self._fan_mode_lbl.config(text=mode_txt, fg=mode_col)
+        self._btn_fan_auto.config(
+            bg=BLUE if fan_manual else SURFACE,
+            fg=BG if fan_manual else SUBTEXT
+        )
 
     def _schedule_refresh(self):
         def loop():
@@ -424,35 +529,67 @@ class FanApp(tk.Tk):
 
     # ── 팬 액션 ──────────────────────────────────────────────────────────────
 
-    def _apply_fan_min(self):
+    def _apply_preset(self, rpm):
+        self._set_fan_busy(True)
+        def worker():
+            ok = set_fan_speed(rpm)
+            self.after(0, self._on_fan_set_done, ok, rpm)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_fan_custom(self):
         rpm = self._slider_var.get()
         self._fan_apply_btn.config(state='disabled', text='적용 중…')
         def worker():
-            ok = set_fan_min_rpm(rpm)
-            self.after(0, self._on_fan_done, ok, rpm)
+            ok = set_fan_speed(rpm)
+            self.after(0, self._on_fan_set_done, ok, rpm)
+            self.after(0, lambda: self._fan_apply_btn.config(state='normal', text='적용'))
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_fan_done(self, ok, rpm):
-        self._fan_apply_btn.config(state='normal', text='최소 속도 적용')
+    def _reset_fan_auto(self):
+        self._btn_fan_auto.config(state='disabled', text='복구 중…')
+        def worker():
+            ok = reset_fan_to_auto()
+            self.after(0, self._on_fan_auto_done, ok)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_fan_set_done(self, ok, rpm):
+        self._set_fan_busy(False)
         if ok:
-            self._slider_val_lbl.config(text=f'{rpm:,} rpm', fg=GREEN)
-            self.after(2000, lambda: self._slider_val_lbl.config(fg=BLUE))
+            self.after(1500, self._refresh)
         else:
             messagebox.showerror('실패', f'팬 설정 실패\nsmc 경로: {SMC or "없음"}')
 
-    def _reset_fan(self):
-        self._fan_reset_btn.config(state='disabled', text='초기화 중…')
-        def worker():
-            ok = reset_fan()
-            self.after(0, self._on_reset_done, ok)
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _on_reset_done(self, ok):
-        self._fan_reset_btn.config(state='normal', text='초기화')
+    def _on_fan_auto_done(self, ok):
+        self._btn_fan_auto.config(state='normal', text='🔄 자동 모드로 복구 (macOS 기본)')
         if ok:
-            self._slider_var.set(1200)
-            self._slider_val_lbl.config(text='1,200 rpm', fg=GREEN)
-            self.after(2000, lambda: self._slider_val_lbl.config(fg=BLUE))
+            self.after(1500, self._refresh)
+        else:
+            messagebox.showerror('실패', '자동 복구 실패')
+
+    def _set_fan_busy(self, busy):
+        state = 'disabled' if busy else ('normal' if SMC else 'disabled')
+        for w in self.winfo_children():
+            if isinstance(w, tk.Frame):
+                for c in w.winfo_children():
+                    if isinstance(c, tk.Button) and 'rpm' in str(c.cget('text')):
+                        c.config(state=state)
+
+    def _refresh_battery(self):
+        cycle, capacity, condition, remain, charging = get_battery_info()
+        self._bat_cycle_lbl.config(
+            text=f'{cycle:,} 회' if cycle else 'N/A',
+            fg=RED if cycle and cycle > 800 else YELLOW if cycle and cycle > 500 else GREEN if cycle else DIM)
+        self._bat_cap_lbl.config(
+            text=f'{capacity} %' if capacity else 'N/A',
+            fg=RED if capacity and capacity < 60 else YELLOW if capacity and capacity < 80 else GREEN if capacity else DIM)
+        cond_map = {'Normal': '정상', 'Good': '양호', 'Fair': '보통', 'Poor': '나쁨', 'Replace Soon': '교체 권장', 'Replace Now': '교체 필요'}
+        cond_txt = cond_map.get(condition, condition) if condition else 'N/A'
+        cond_col = RED if condition in ('Replace Now',) else YELLOW if condition in ('Poor', 'Replace Soon', 'Fair') else GREEN if condition else DIM
+        self._bat_status_lbl.config(text=cond_txt, fg=cond_col)
+        if remain:
+            self._bat_remain_lbl.config(text=f'{remain} ({"충전 중" if charging else "방전 중"})', fg=BLUE if charging else GREEN)
+        else:
+            self._bat_remain_lbl.config(text='충전 중' if charging else 'N/A', fg=BLUE if charging else DIM)
 
     # ── 업데이트 ─────────────────────────────────────────────────────────────
 
