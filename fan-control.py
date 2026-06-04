@@ -208,10 +208,10 @@ def get_battery_info():
     m2 = re.search(r'(\d+:\d+)\s+remaining', out2)
     if m2:
         remain = m2.group(1)
-    # 'discharging'에 'charging'이 포함되므로 단어 경계로 매칭
     m_status = re.search(r'\d+%;\s*([\w ]+?)\s*;', out2)
     status_word = m_status.group(1).lower() if m_status else ''
-    charging = status_word == 'charging'
+    on_ac = 'AC Power' in out2
+    charging = on_ac and 'discharging' not in status_word
 
     return cycle, capacity, condition, remain, charging
 
@@ -1136,10 +1136,12 @@ class FanApp(tk.Tk):
     def _refresh_battery(self):
         """충전 상태·잔여 시간 즉시 갱신."""
         out, _ = shell('pmset -g batt 2>/dev/null')
+        on_ac    = 'AC Power' in out
         m_status = re.search(r'\d+%;\s*([\w ]+?)\s*;', out)
         status_word = m_status.group(1).lower() if m_status else ''
-        charging = status_word == 'charging'
-        charged  = 'charged' in out.lower() and not charging
+        # finishing charge / charging / trickle charge 등 AC 연결 상태 모두 포함
+        charging = on_ac and 'discharging' not in status_word
+        charged  = on_ac and ('charged' in status_word or 'finishing' in status_word)
 
         m_remain = re.search(r'(\d+:\d+)\s+remaining', out)
         remain = m_remain.group(1) if m_remain else None
