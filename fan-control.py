@@ -6,7 +6,7 @@ from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
 import urllib.request, json, webbrowser
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
 
@@ -159,18 +159,32 @@ def get_thermal():
     return cpu_temp, gpu_temp, battery_temp, fan_rpm, fan_min, fan_max, fan_manual
 
 def get_battery_info():
-    """충전 횟수, 용량(%), 잔여 시간, 상태 반환."""
+    """충전 횟수, 용량(%, mAh), 잔여 시간, 상태 반환."""
     out, _ = shell('system_profiler SPPowerDataType 2>/dev/null')
     cycle = capacity = condition = None
+
     m = re.search(r'Cycle Count:\s*(\d+)', out)
     if m:
         cycle = int(m.group(1))
+
+    # macOS 버전에 따라 포맷이 다름 — 두 방식 모두 시도
     m = re.search(r'Maximum Capacity:\s*(\d+)\s*%', out)
     if m:
         capacity = int(m.group(1))
-    m = re.search(r'Condition:\s*(\S+)', out)
+    else:
+        # Sequoia: ioreg 에서 MaxCapacity / DesignCapacity 로 계산
+        ir, _ = shell('ioreg -r -c AppleSmartBattery 2>/dev/null')
+        m_max = re.search(r'"MaxCapacity"\s*=\s*(\d+)', ir)
+        m_des = re.search(r'"DesignCapacity"\s*=\s*(\d+)', ir)
+        if m_max and m_des:
+            max_mah = int(m_max.group(1))
+            des_mah = int(m_des.group(1))
+            if des_mah > 0:
+                capacity = round(max_mah / des_mah * 100)
+
+    m = re.search(r'Condition:\s*(\S[\w ]*)', out)
     if m:
-        condition = m.group(1)
+        condition = m.group(1).strip()
 
     # 잔여 시간 — pmset
     out2, _ = shell('pmset -g batt 2>/dev/null')
@@ -178,7 +192,10 @@ def get_battery_info():
     m2 = re.search(r'(\d+:\d+)\s+remaining', out2)
     if m2:
         remain = m2.group(1)
-    charging = 'charging' in out2.lower() or 'AC' in out2
+    # 'discharging'에 'charging'이 포함되므로 단어 경계로 매칭
+    m_status = re.search(r'\d+%;\s*([\w ]+?)\s*;', out2)
+    status_word = m_status.group(1).lower() if m_status else ''
+    charging = status_word == 'charging'
 
     return cycle, capacity, condition, remain, charging
 
@@ -413,6 +430,9 @@ class FanApp(tk.Tk):
         self._mb_item        = None   # NSStatusItem
         self._mb_show_win_mi = None
         self._window_visible = True
+        # 앱 시작 시 현재 팬 RPM 읽어서 슬라이더 초기값으로 사용
+        _fan_now = _smc_read_decimal('F0Ac')
+        self._init_fan_rpm = max(1200, min(6000, int(_fan_now))) if _fan_now and _fan_now > 0 else 2500
         self._build()
         self._refresh()
         self._refresh_battery()
@@ -586,7 +606,7 @@ class FanApp(tk.Tk):
                                          font=('Helvetica Neue', 17, 'bold'))
         self._slider_val_lbl.pack(side='right')
 
-        self._slider_var = tk.IntVar(value=2500)
+        self._slider_var = tk.IntVar(value=self._init_fan_rpm)
         self._slider = tk.Scale(
             t2, from_=1200, to=6000, resolution=100,
             orient='horizontal', variable=self._slider_var,
@@ -596,7 +616,7 @@ class FanApp(tk.Tk):
             command=lambda v: self._slider_val_lbl.config(text=f'{int(v):,} rpm')
         )
         self._slider.pack(fill='x', padx=16, pady=4)
-        self._slider_val_lbl.config(text=f'{self._slider_var.get():,} rpm')
+        self._slider_val_lbl.config(text=f'{self._init_fan_rpm:,} rpm')
 
         self._fan_apply_btn = FlatBtn(
             t2, text='  적용  ',
@@ -943,9 +963,15 @@ class FanApp(tk.Tk):
         self._bat_cap_lbl.config(
             text=f'{capacity} %' if capacity else 'N/A',
             fg=RED if capacity and capacity < 60 else YELLOW if capacity and capacity < 80 else GREEN if capacity else DIM)
-        cond_map = {'Normal': '정상', 'Good': '양호', 'Fair': '보통', 'Poor': '나쁨', 'Replace Soon': '교체 권장', 'Replace Now': '교체 필요'}
+        cond_map = {
+            'Normal': '정상', 'Good': '양호', 'Fair': '보통',
+            'Poor': '나쁨', 'Replace Soon': '교체 권장',
+            'Replace Now': '교체 필요', 'Service Recommended': '점검 권장',
+        }
         cond_txt = cond_map.get(condition, condition) if condition else 'N/A'
-        cond_col = RED if condition in ('Replace Now',) else YELLOW if condition in ('Poor', 'Replace Soon', 'Fair') else GREEN if condition else DIM
+        bad = ('Replace Now', 'Replace Soon')
+        warn = ('Poor', 'Fair', 'Service Recommended')
+        cond_col = RED if condition in bad else YELLOW if condition in warn else GREEN if condition else DIM
         self._bat_status_lbl.config(text=cond_txt, fg=cond_col)
         if remain:
             self._bat_remain_lbl.config(text=f'{remain} ({"충전 중" if charging else "방전 중"})', fg=BLUE if charging else GREEN)
