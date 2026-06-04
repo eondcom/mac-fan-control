@@ -38,58 +38,57 @@ def get_power_mode():
     m = re.search(r'lowpowermode\s+(\d)', out)
     return 'low' if (m and m.group(1) == '1') else 'normal'
 
+def _smc_read_decimal(key):
+    """smc -k KEY -r 출력에서 소수값 직접 추출. 예: 'TC0P  [sp78]  55.50 (bytes ...)' → 55.5"""
+    if not SMC:
+        return None
+    out, _ = shell(f'"{SMC}" -k {key} -r 2>/dev/null')
+    m = re.search(r'([\d]+\.[\d]+)\s*\(bytes', out)
+    if m:
+        try:
+            return float(m.group(1))
+        except Exception:
+            pass
+    return None
+
 def get_thermal():
     """CPU 온도(°C)와 팬 속도(rpm). 없으면 None."""
     cpu_temp = fan_rpm = None
 
-    # smc 바이너리 우선
-    if SMC:
-        out, _ = shell(f'"{SMC}" -k TC0P -r 2>/dev/null')
-        m = re.search(r'([\d.]+)\s*\(bytes', out)
-        if m:
-            # SMC raw 값 → °C 변환 (fp2e 포맷)
-            try:
-                raw = int(m.group(0).split('0x')[1].split(')')[0], 16) if '0x' in out else None
-                if raw: cpu_temp = raw / 256.0
-            except Exception:
-                pass
+    # smc 바이너리 우선 — 여러 온도 키 순차 시도 (모델마다 다름)
+    for key in ('TC0P', 'TC0D', 'TC0H', 'TCXC', 'Ts0S'):
+        val = _smc_read_decimal(key)
+        if val and 0 < val < 120:
+            cpu_temp = val
+            break
 
-        out, _ = shell(f'"{SMC}" -k F0Ac -r 2>/dev/null')
-        m = re.search(r'([\d.]+)\s*\(bytes', out)
-        if m:
-            try:
-                raw = int(m.group(0).split('0x')[1].split(')')[0], 16) if '0x' in out else None
-                if raw: fan_rpm = int(raw / 4)  # fp2e 포맷
-            except Exception:
-                pass
+    fan_val = _smc_read_decimal('F0Ac')
+    if fan_val and fan_val > 0:
+        fan_rpm = int(fan_val)
 
-    # ioreg로 팬 속도 보완
+    # ioreg 팬 속도 폴백
     if fan_rpm is None:
         out, _ = shell('ioreg -r -c AppleSMCFan 2>/dev/null')
         m = re.search(r'"CurrentSpeed"\s*=\s*(\d+)', out)
         if m:
             fan_rpm = int(m.group(1))
 
-    # CPU 온도: IOPMrootDomain (sudo 불필요)
+    # CPU 온도 폴백 — ioreg
     if cpu_temp is None:
-        out, _ = shell('ioreg -r -n "IOPMrootDomain" 2>/dev/null | grep -i temperature')
-        m = re.search(r'temperature.*?(\d+)', out, re.IGNORECASE)
+        out, _ = shell('ioreg -l 2>/dev/null | grep -i "CPU die temperature"')
+        m = re.search(r'(\d+\.?\d*)', out)
         if m:
-            val = int(m.group(1))
-            cpu_temp = val / 100.0 if val > 1000 else float(val)
+            val = float(m.group(1))
+            cpu_temp = val / 100.0 if val > 1000 else val
 
     return cpu_temp, fan_rpm
 
 def get_fan_min_rpm():
     if not SMC:
         return None
-    out, _ = shell(f'"{SMC}" -k F0Mn -r 2>/dev/null')
-    m = re.search(r'0x([0-9a-fA-F]+)', out)
-    if m:
-        try:
-            return int(m.group(1), 16) // 4
-        except Exception:
-            pass
+    val = _smc_read_decimal('F0Mn')
+    if val and val > 0:
+        return int(val)
     return None
 
 def set_fan_min_rpm(rpm):
@@ -99,10 +98,10 @@ def set_fan_min_rpm(rpm):
     return admin(f'"{SMC}" -k F0Mn -w {raw:08x}')
 
 def reset_fan():
-    """SMC 팬 최소값 초기화 (1200 rpm)"""
+    """SMC 팬 최소값 초기화 (1200 rpm). fpe2: 1200 * 4 = 4800 = 0x12C0"""
     if not SMC:
         return False
-    return admin(f'"{SMC}" -k F0Mn -w 00001200')
+    return admin(f'"{SMC}" -k F0Mn -w 000012c0')
 
 # ── 색상 ─────────────────────────────────────────────────────────────────────
 
