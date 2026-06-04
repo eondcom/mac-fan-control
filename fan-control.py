@@ -6,7 +6,7 @@ from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
 import urllib.request, json, webbrowser
 
-VERSION = "1.4.1"
+VERSION = "1.4.2"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
 
@@ -436,6 +436,7 @@ class FanApp(tk.Tk):
         self._build()
         self._refresh()
         self._refresh_battery()
+        threading.Thread(target=self._refresh_battery_full, daemon=True).start()
         self._schedule_refresh()
         threading.Thread(target=self._auto_check_update, daemon=True).start()
         if _APPKIT:
@@ -882,11 +883,26 @@ class FanApp(tk.Tk):
             self._mb_bat_mi.setTitle_(f'배터리   {bat_t_short}')
 
     def _schedule_refresh(self):
-        def loop():
+        # 온도/팬: 5초마다
+        def thermal_loop():
             while True:
                 time.sleep(5)
                 self.after(0, self._refresh)
-        threading.Thread(target=loop, daemon=True).start()
+        threading.Thread(target=thermal_loop, daemon=True).start()
+
+        # 배터리 충전 상태: 3초마다 (USB 연결 즉시 반영)
+        def battery_loop():
+            while True:
+                time.sleep(3)
+                self.after(0, self._refresh_battery)
+        threading.Thread(target=battery_loop, daemon=True).start()
+
+        # 배터리 상세 정보: 30초마다 (충전 횟수·용량·상태)
+        def battery_full_loop():
+            while True:
+                time.sleep(30)
+                self._refresh_battery_full()
+        threading.Thread(target=battery_full_loop, daemon=True).start()
 
     # ── 전원 모드 액션 ───────────────────────────────────────────────────────
 
@@ -956,7 +972,31 @@ class FanApp(tk.Tk):
             b.config(state=state)
 
     def _refresh_battery(self):
-        cycle, capacity, condition, remain, charging = get_battery_info()
+        """충전 상태만 빠르게 갱신 (3초 주기). 무거운 정보는 30초마다."""
+        out, _ = shell('pmset -g batt 2>/dev/null')
+        m_status = re.search(r'\d+%;\s*([\w ]+?)\s*;', out)
+        status_word = m_status.group(1).lower() if m_status else ''
+        charging = status_word == 'charging'
+
+        m_remain = re.search(r'(\d+:\d+)\s+remaining', out)
+        remain = m_remain.group(1) if m_remain else None
+
+        if remain:
+            self._bat_remain_lbl.config(
+                text=f'{remain}  {"⚡ 충전 중" if charging else "🔋 방전 중"}',
+                fg=BLUE if charging else GREEN)
+        else:
+            charged = 'charged' in out.lower()
+            if charged:
+                self._bat_remain_lbl.config(text='⚡ 완충', fg=GREEN)
+            elif charging:
+                self._bat_remain_lbl.config(text='⚡ 충전 중', fg=BLUE)
+            else:
+                self._bat_remain_lbl.config(text='🔋 방전 중', fg=SUBTEXT)
+
+    def _refresh_battery_full(self):
+        """충전 횟수·용량·상태 갱신 (느림, 30초 주기)."""
+        cycle, capacity, condition, _, _ = get_battery_info()
         self._bat_cycle_lbl.config(
             text=f'{cycle:,} 회' if cycle else 'N/A',
             fg=RED if cycle and cycle > 800 else YELLOW if cycle and cycle > 500 else GREEN if cycle else DIM)
@@ -969,14 +1009,10 @@ class FanApp(tk.Tk):
             'Replace Now': '교체 필요', 'Service Recommended': '점검 권장',
         }
         cond_txt = cond_map.get(condition, condition) if condition else 'N/A'
-        bad = ('Replace Now', 'Replace Soon')
+        bad  = ('Replace Now', 'Replace Soon')
         warn = ('Poor', 'Fair', 'Service Recommended')
         cond_col = RED if condition in bad else YELLOW if condition in warn else GREEN if condition else DIM
         self._bat_status_lbl.config(text=cond_txt, fg=cond_col)
-        if remain:
-            self._bat_remain_lbl.config(text=f'{remain} ({"충전 중" if charging else "방전 중"})', fg=BLUE if charging else GREEN)
-        else:
-            self._bat_remain_lbl.config(text='충전 중' if charging else 'N/A', fg=BLUE if charging else DIM)
 
     # ── 업데이트 ─────────────────────────────────────────────────────────────
 
