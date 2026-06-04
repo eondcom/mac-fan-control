@@ -4,6 +4,11 @@
 import tkinter as tk
 from tkinter import messagebox
 import subprocess, threading, re, time, shutil, os
+import urllib.request, json, webbrowser
+
+VERSION = "1.0.1"
+GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
+RELEASES_URL = "https://github.com/eondcom/mac-fan-control/releases/latest"
 
 # ── smc 바이너리 탐색 ────────────────────────────────────────────────────────
 # smcFanControl 앱이 설치된 경우 /Applications/smcFanControl.app 안에 있음
@@ -119,6 +124,26 @@ MAUVE   = '#cba6f7'
 
 MODE_COLOR = {'low': BLUE, 'normal': GREEN}
 
+# ── 업데이트 확인 ─────────────────────────────────────────────────────────────
+
+def _parse_version(tag):
+    """'v1.2.3' → (1, 2, 3)"""
+    try:
+        return tuple(int(x) for x in tag.lstrip('v').split('.'))
+    except Exception:
+        return (0,)
+
+def fetch_latest_version():
+    """GitHub Releases API로 최신 버전 태그 반환. 실패 시 None."""
+    try:
+        req = urllib.request.Request(GITHUB_API,
+              headers={'User-Agent': f'MacFanControl/{VERSION}'})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            return data.get('tag_name', '').lstrip('v')
+    except Exception:
+        return None
+
 # ── GUI ──────────────────────────────────────────────────────────────────────
 
 class FanApp(tk.Tk):
@@ -129,8 +154,9 @@ class FanApp(tk.Tk):
         self.configure(bg=BG)
         self._mode = get_power_mode()
         self._build()
-        self._refresh()  # 즉시 한 번
+        self._refresh()
         self._schedule_refresh()
+        threading.Thread(target=self._auto_check_update, daemon=True).start()
 
     # ── 레이아웃 ─────────────────────────────────────────────────────────────
 
@@ -142,9 +168,14 @@ class FanApp(tk.Tk):
         tk.Label(self, text='맥북 팬 · 전원 관리',
                  bg=BG, fg=TEXT, font=('Helvetica Neue', 17, 'bold')
                  ).pack(pady=(20, 2))
-        tk.Label(self, text='Intel MacBook · macOS Sequoia',
+        sub = tk.Frame(self, bg=BG)
+        sub.pack(pady=(0, 14))
+        tk.Label(sub, text='Intel MacBook · macOS Sequoia',
                  bg=BG, fg=DIM, font=('Helvetica Neue', 11)
-                 ).pack(pady=(0, 14))
+                 ).pack(side='left')
+        tk.Label(sub, text=f'  v{VERSION}',
+                 bg=BG, fg=BORDER, font=('Helvetica Neue', 11)
+                 ).pack(side='left')
 
         # ── 상태 카드 ────────────────────────────────────────────────────────
         card = self._card()
@@ -225,9 +256,18 @@ class FanApp(tk.Tk):
                      ).pack(padx=18, pady=(2, 0))
 
         # 하단
-        tk.Label(self, text='전원 모드 변경 시 시스템 암호가 필요합니다.',
+        bottom = tk.Frame(self, bg=BG)
+        bottom.pack(fill='x', padx=18, pady=(14, 10))
+        tk.Label(bottom, text='전원 모드 변경 시 시스템 암호가 필요합니다.',
                  bg=BG, fg=DIM, font=('Helvetica Neue', 10)
-                 ).pack(pady=(14, 10))
+                 ).pack(side='left')
+        self._update_btn = tk.Button(
+            bottom, text='업데이트 확인',
+            bg=BG, fg=DIM, font=('Helvetica Neue', 10),
+            bd=0, relief='flat', cursor='hand2',
+            command=self._check_update_manual
+        )
+        self._update_btn.pack(side='right')
 
     # ── 위젯 헬퍼 ────────────────────────────────────────────────────────────
 
@@ -371,6 +411,75 @@ class FanApp(tk.Tk):
             self._slider_var.set(1200)
             self._slider_val_lbl.config(text='1,200 rpm', fg=GREEN)
             self.after(2000, lambda: self._slider_val_lbl.config(fg=BLUE))
+
+    # ── 업데이트 ──────────────────────────────────────────────────────────────
+
+    def _auto_check_update(self):
+        """앱 시작 3초 후 조용히 확인 — 새 버전 있을 때만 알림."""
+        time.sleep(3)
+        latest = fetch_latest_version()
+        if latest and _parse_version(latest) > _parse_version(VERSION):
+            self.after(0, self._show_update_banner, latest)
+
+    def _check_update_manual(self):
+        """버튼 클릭 시 업데이트 확인."""
+        self._update_btn.config(text='확인 중…', state='disabled')
+        def worker():
+            latest = fetch_latest_version()
+            self.after(0, self._on_manual_check_done, latest)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_manual_check_done(self, latest):
+        self._update_btn.config(text='업데이트 확인', state='normal')
+        if latest is None:
+            messagebox.showinfo('업데이트 확인', '네트워크 오류 또는 확인 실패')
+        elif _parse_version(latest) > _parse_version(VERSION):
+            self._show_update_dialog(latest)
+        else:
+            messagebox.showinfo('업데이트 확인', f'최신 버전입니다 (v{VERSION})')
+
+    def _show_update_banner(self, latest):
+        """상단에 업데이트 알림 배너 삽입."""
+        banner = tk.Frame(self, bg=BLUE, cursor='hand2')
+        banner.place(relx=0, rely=0, relwidth=1)
+        tk.Label(banner,
+                 text=f'  🎉 새 버전 v{latest} 출시 — 클릭해서 다운로드',
+                 bg=BLUE, fg=BG, font=('Helvetica Neue', 11, 'bold'),
+                 anchor='w').pack(side='left', pady=6, padx=8)
+        tk.Label(banner, text='✕', bg=BLUE, fg=BG,
+                 font=('Helvetica Neue', 12, 'bold'), cursor='hand2'
+                 ).pack(side='right', padx=8)
+        banner.bind('<Button-1>', lambda e: webbrowser.open(RELEASES_URL))
+        for w in banner.winfo_children():
+            w.bind('<Button-1>', lambda e: webbrowser.open(RELEASES_URL))
+
+    def _show_update_dialog(self, latest):
+        win = tk.Toplevel(self)
+        win.title('업데이트')
+        win.configure(bg=BG)
+        win.resizable(False, False)
+        win.geometry('300x160')
+        win.grab_set()
+
+        tk.Label(win, text=f'🎉 새 버전 v{latest} 출시!',
+                 bg=BG, fg=TEXT, font=('Helvetica Neue', 14, 'bold')
+                 ).pack(pady=(20, 4))
+        tk.Label(win, text=f'현재 v{VERSION}  →  최신 v{latest}',
+                 bg=BG, fg=DIM, font=('Helvetica Neue', 11)
+                 ).pack()
+
+        btns = tk.Frame(win, bg=BG)
+        btns.pack(pady=16)
+        tk.Button(btns, text='다운로드',
+                  bg=BLUE, fg=BG, font=('Helvetica Neue', 12, 'bold'),
+                  bd=0, padx=16, pady=7, relief='flat', cursor='hand2',
+                  command=lambda: [webbrowser.open(RELEASES_URL), win.destroy()]
+                  ).pack(side='left', padx=(0, 8))
+        tk.Button(btns, text='나중에',
+                  bg=SURFACE, fg=SUBTEXT, font=('Helvetica Neue', 12),
+                  bd=0, padx=16, pady=7, relief='flat', cursor='hand2',
+                  command=win.destroy
+                  ).pack(side='left')
 
 
 if __name__ == '__main__':
