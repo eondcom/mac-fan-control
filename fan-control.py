@@ -6,7 +6,7 @@ from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct, queue
 import urllib.request, json, webbrowser
 
-VERSION = "1.4.6"
+VERSION = "1.4.7"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
 
@@ -492,6 +492,14 @@ class FanApp(tk.Tk):
                            font=('Helvetica Neue', 10, 'bold'))
             lbl.pack(side='left')
             self._strip_labels[key] = lbl
+        # 🔄 새로고침 버튼 — 우측 고정, 어느 탭에서나 항상 보임
+        self._reload_btn = FlatBtn(
+            strip, text='🔄', bg=SURFACE, fg=SUBTEXT,
+            font=('Helvetica Neue', 13), padx=8, pady=2,
+            hover_bg=BORDER, hover_fg=TEXT,
+            command=self._manual_refresh
+        )
+        self._reload_btn.pack(side='right')
 
         # ── Notebook ──────────────────────────────────────────────────────────
         nb = ttk.Notebook(self, style='Dark.TNotebook')
@@ -655,8 +663,14 @@ class FanApp(tk.Tk):
             card.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 6, 0))
             tk.Label(card, text=title, bg=SURFACE, fg=accent,
                      font=('Helvetica Neue', 10, 'bold')).pack(anchor='w')
-            lbl = tk.Label(card, text='—', bg=SURFACE, fg=TEXT,
-                           font=('Helvetica Neue', 18, 'bold'))
+            # 잔여 시간은 텍스트가 길어서 폰트 작게, 줄바꿈 허용
+            if title == '잔여 시간':
+                lbl = tk.Label(card, text='—', bg=SURFACE, fg=TEXT,
+                               font=('Helvetica Neue', 12, 'bold'),
+                               wraplength=160, justify='left')
+            else:
+                lbl = tk.Label(card, text='—', bg=SURFACE, fg=TEXT,
+                               font=('Helvetica Neue', 18, 'bold'))
             lbl.pack(anchor='w', pady=(8, 0))
             setattr(self, attr, lbl)
 
@@ -884,6 +898,14 @@ class FanApp(tk.Tk):
             self._mb_fan_mi.setTitle_(f'팬        {fan_txt}')
             bat_t_short = bat_txt.split()[0] if battery_temp else '—'
             self._mb_bat_mi.setTitle_(f'배터리   {bat_t_short}')
+
+    def _manual_refresh(self):
+        """🔄 버튼 — 모든 데이터 즉시 새로고침."""
+        self._reload_btn.config(state='disabled', text='…')
+        self._refresh()
+        self._refresh_battery()
+        self._refresh_battery_full()
+        self.after(600, lambda: self._reload_btn.config(state='normal', text='🔄'))
 
     def _poll_ui_queue(self):
         """20ms마다 메인 스레드에서 백그라운드 큐 처리. self.after()를 메인 스레드에서만 호출."""
