@@ -6,7 +6,7 @@ from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
 import urllib.request, json, webbrowser
 
-VERSION = "1.4.3"
+VERSION = "1.4.4"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
 
@@ -883,7 +883,7 @@ class FanApp(tk.Tk):
             self._mb_bat_mi.setTitle_(f'배터리   {bat_t_short}')
 
     def _setup_power_source_watcher(self):
-        """IOPSNotificationCreateRunLoopSource: 충전 상태 변경 즉시 감지. 폴링 없음."""
+        """IOKit main RunLoop에 전원 이벤트 등록 — 충전기 연결/해제 즉시 감지."""
         try:
             import ctypes
             _IOKit = ctypes.cdll.LoadLibrary(
@@ -891,9 +891,8 @@ class FanApp(tk.Tk):
             _CF = ctypes.cdll.LoadLibrary(
                 '/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
 
-            _CF.CFRunLoopGetCurrent.restype = ctypes.c_void_p
+            _CF.CFRunLoopGetMain.restype  = ctypes.c_void_p
             _CF.CFRunLoopAddSource.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-            _CF.CFRunLoopRun.argtypes = []
             _IOKit.IOPSNotificationCreateRunLoopSource.restype = ctypes.c_void_p
 
             kCFRunLoopDefaultMode = ctypes.c_void_p.in_dll(_CF, 'kCFRunLoopDefaultMode')
@@ -907,13 +906,13 @@ class FanApp(tk.Tk):
             self._ps_callback_ref = cb  # GC 방지
 
             source = _IOKit.IOPSNotificationCreateRunLoopSource(cb, None)
+            if not source:
+                return False
 
-            def run_loop():
-                loop = _CF.CFRunLoopGetCurrent()
-                _CF.CFRunLoopAddSource(loop, ctypes.c_void_p(source), kCFRunLoopDefaultMode)
-                _CF.CFRunLoopRun()
-
-            threading.Thread(target=run_loop, daemon=True).start()
+            # 백그라운드 스레드 RunLoop이 아닌 메인 RunLoop에 등록
+            # tkinter/AppKit이 이미 메인 RunLoop을 돌리고 있으므로 CFRunLoopRun() 불필요
+            main_loop = _CF.CFRunLoopGetMain()
+            _CF.CFRunLoopAddSource(main_loop, ctypes.c_void_p(source), kCFRunLoopDefaultMode)
             return True
         except Exception as e:
             print(f'power watcher setup error: {e}')
@@ -927,14 +926,23 @@ class FanApp(tk.Tk):
                 self.after(0, self._refresh)
         threading.Thread(target=thermal_loop, daemon=True).start()
 
-        # 충전 상태: IOKit 이벤트 기반 (USB 꽂는 즉시, 유휴 CPU 0)
-        if not self._setup_power_source_watcher():
-            # IOKit 실패 시 3초 폴링으로 폴백
-            def battery_loop():
-                while True:
-                    time.sleep(3)
-                    self.after(0, self._refresh_battery)
-            threading.Thread(target=battery_loop, daemon=True).start()
+        # 충전 상태: IOKit 이벤트 기반 (메인 RunLoop) + 2초 변경 감지 폴링 병행
+        self._setup_power_source_watcher()
+
+        def battery_poll_loop():
+            """2초마다 상태 변화 감지 — IOKit 이벤트 보조 & 폴백."""
+            last_key = ''
+            while True:
+                time.sleep(2)
+                out, _ = shell('pmset -g batt 2>/dev/null')
+                # 배터리 라인 한 줄만 추출해 변화 감지 키로 사용
+                for line in out.splitlines():
+                    if 'InternalBattery' in line or '%' in line:
+                        if line != last_key:
+                            last_key = line
+                            self.after(0, self._refresh_battery)
+                        break
+        threading.Thread(target=battery_poll_loop, daemon=True).start()
 
         # 배터리 상세 정보: 60초마다 (충전 횟수·용량·상태는 자주 안 바뀜)
         def battery_full_loop():
@@ -1011,27 +1019,27 @@ class FanApp(tk.Tk):
             b.config(state=state)
 
     def _refresh_battery(self):
-        """충전 상태만 빠르게 갱신 (3초 주기). 무거운 정보는 30초마다."""
+        """충전 상태·잔여 시간 즉시 갱신."""
         out, _ = shell('pmset -g batt 2>/dev/null')
         m_status = re.search(r'\d+%;\s*([\w ]+?)\s*;', out)
         status_word = m_status.group(1).lower() if m_status else ''
         charging = status_word == 'charging'
+        charged  = 'charged' in out.lower() and not charging
 
         m_remain = re.search(r'(\d+:\d+)\s+remaining', out)
         remain = m_remain.group(1) if m_remain else None
+        has_time = remain and remain != '0:00'
 
-        if remain:
+        if charged:
+            self._bat_remain_lbl.config(text='⚡ 완충', fg=GREEN)
+        elif charging:
             self._bat_remain_lbl.config(
-                text=f'{remain}  {"⚡ 충전 중" if charging else "🔋 방전 중"}',
-                fg=BLUE if charging else GREEN)
+                text=f'⚡ 충전 중  {remain} 후 완충' if has_time else '⚡ 충전 중',
+                fg=BLUE)
         else:
-            charged = 'charged' in out.lower()
-            if charged:
-                self._bat_remain_lbl.config(text='⚡ 완충', fg=GREEN)
-            elif charging:
-                self._bat_remain_lbl.config(text='⚡ 충전 중', fg=BLUE)
-            else:
-                self._bat_remain_lbl.config(text='🔋 방전 중', fg=SUBTEXT)
+            self._bat_remain_lbl.config(
+                text=f'🔋 방전 중  {remain} 남음' if has_time else '🔋 방전 중',
+                fg=GREEN if has_time else SUBTEXT)
 
     def _refresh_battery_full(self):
         """충전 횟수·용량·상태 갱신 (느림, 30초 주기)."""
