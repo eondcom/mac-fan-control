@@ -6,7 +6,17 @@ from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
 import urllib.request, json, webbrowser
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
+
+# ── macOS 메뉴바 위젯 (PyObjC) ───────────────────────────────────────────────
+try:
+    import objc
+    from AppKit import (NSStatusBar, NSMenu, NSMenuItem, NSObject,
+                        NSApplication, NSImage, NSSize)
+    from Foundation import NSString
+    _APPKIT = True
+except ImportError:
+    _APPKIT = False
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 
 # ── smc 바이너리 탐색 ────────────────────────────────────────────────────────
@@ -280,6 +290,28 @@ YELLOW  = '#f9e2af'
 PEACH   = '#fab387'
 RED     = '#f38ba8'
 
+# ── macOS 메뉴바 델리게이트 ──────────────────────────────────────────────────
+
+if _APPKIT:
+    class _MenuBarDelegate(NSObject):
+        _show_cb = None
+        _quit_cb = None
+
+        @objc.python_method
+        def set_callbacks(self, show_cb, quit_cb):
+            self._show_cb = show_cb
+            self._quit_cb = quit_cb
+
+        def showApp_(self, sender):
+            if self._show_cb:
+                self._show_cb()
+
+        def quitApp_(self, sender):
+            if self._quit_cb:
+                self._quit_cb()
+else:
+    _MenuBarDelegate = None
+
 # ── GUI ──────────────────────────────────────────────────────────────────────
 
 class FanApp(tk.Tk):
@@ -289,104 +321,116 @@ class FanApp(tk.Tk):
         self.resizable(True, True)
         self.configure(bg=BG)
         self._mode = get_power_mode()
+        self._mb_item = None   # NSStatusItem (메뉴바 위젯)
         self._build()
         self._refresh()
         self._refresh_battery()
         self._schedule_refresh()
         threading.Thread(target=self._auto_check_update, daemon=True).start()
+        if _APPKIT:
+            self.after(200, self._setup_menubar)
 
     # ── 레이아웃 ─────────────────────────────────────────────────────────────
 
     def _build(self):
-        self.geometry('820x540')
-        self.minsize(700, 460)
+        self.geometry('860x560')
+        self.minsize(720, 480)
 
         # ── ttk 다크 스타일 ───────────────────────────────────────────────────
         style = ttk.Style(self)
         style.theme_use('default')
-        style.configure('Dark.TNotebook', background=BG, borderwidth=0,
-                        tabmargins=[0, 0, 0, 0])
-        style.configure('Dark.TNotebook.Tab', background=SURFACE, foreground=SUBTEXT,
-                        padding=[18, 7], font=('Helvetica Neue', 11),
-                        borderwidth=0, focuscolor=BG)
+        style.configure('Dark.TNotebook', background=BG, borderwidth=0, tabmargins=[0, 0, 0, 0])
+        style.configure('Dark.TNotebook.Tab', background=SURFACE, foreground=TEXT,
+                        padding=[20, 8], font=('Helvetica Neue', 12), borderwidth=0, focuscolor=BG)
         style.map('Dark.TNotebook.Tab',
-                  background=[('selected', BG), ('active', BORDER)],
-                  foreground=[('selected', TEXT), ('active', TEXT)])
-        style.layout('Dark.TNotebook.Tab', [
-            ('Notebook.tab', {'sticky': 'nswe', 'children': [
-                ('Notebook.padding', {'side': 'top', 'sticky': 'nswe', 'children': [
-                    ('Notebook.label', {'side': 'top', 'sticky': ''})
-                ]})
-            ]})
-        ])
+                  background=[('selected', '#2a2a3e'), ('active', BORDER)],
+                  foreground=[('selected', BLUE), ('active', TEXT)])
 
-        # ── 헤더 바 ───────────────────────────────────────────────────────────
-        hdr = tk.Frame(self, bg=SURFACE, padx=16, pady=8)
+        # ── 타이틀 헤더 ───────────────────────────────────────────────────────
+        hdr = tk.Frame(self, bg='#16161e', padx=18, pady=10)
         hdr.pack(fill='x')
-        tk.Label(hdr, text='맥북 팬 · 전원 관리', bg=SURFACE, fg=TEXT,
+        tk.Label(hdr, text='🖥  맥북 팬 · 전원 관리', bg='#16161e', fg=TEXT,
                  font=('Helvetica Neue', 15, 'bold')).pack(side='left')
-        tk.Label(hdr, text=f'  v{VERSION}', bg=SURFACE, fg=BORDER,
-                 font=('Helvetica Neue', 11)).pack(side='left')
-        self._update_btn = tk.Button(hdr, text='업데이트 확인', bg=SURFACE, fg=DIM,
+        tk.Label(hdr, text=f'v{VERSION}', bg='#16161e', fg=BORDER,
+                 font=('Helvetica Neue', 10)).pack(side='left', padx=(8, 0))
+        self._update_btn = tk.Button(hdr, text='업데이트 확인', bg='#16161e', fg=SUBTEXT,
                                      font=('Helvetica Neue', 10), bd=0, relief='flat',
-                                     cursor='hand2', command=self._check_update_manual)
+                                     cursor='hand2', activebackground='#16161e',
+                                     activeforeground=BLUE,
+                                     command=self._check_update_manual)
         self._update_btn.pack(side='right')
+
+        # ── 상태 스트립 (항상 표시) ───────────────────────────────────────────
+        strip = tk.Frame(self, bg=SURFACE, padx=18, pady=6)
+        strip.pack(fill='x')
+        self._strip_labels = {}
+        for i, (key, icon) in enumerate([('cpu', 'CPU'), ('gpu', 'GPU'),
+                                          ('bat_t', '배터리'), ('fan', '팬'), ('mode', '모드')]):
+            if i > 0:
+                tk.Label(strip, text='│', bg=SURFACE, fg=BORDER,
+                         font=('Helvetica Neue', 11)).pack(side='left', padx=8)
+            tk.Label(strip, text=f'{icon}  ', bg=SURFACE, fg=SUBTEXT,
+                     font=('Helvetica Neue', 10)).pack(side='left')
+            lbl = tk.Label(strip, text='—', bg=SURFACE, fg=TEXT,
+                           font=('Helvetica Neue', 10, 'bold'))
+            lbl.pack(side='left')
+            self._strip_labels[key] = lbl
 
         # ── Notebook ──────────────────────────────────────────────────────────
         nb = ttk.Notebook(self, style='Dark.TNotebook')
-        nb.pack(fill='both', expand=True)
+        nb.pack(fill='both', expand=True, pady=(1, 0))
 
         # ── Tab 1: 대시보드 ───────────────────────────────────────────────────
         t1 = tk.Frame(nb, bg=BG)
         nb.add(t1, text='  📊 대시보드  ')
 
-        # 온도 카드 행
         temp_row = tk.Frame(t1, bg=BG)
         temp_row.pack(fill='x', padx=16, pady=(16, 8))
         for i in range(3):
             temp_row.columnconfigure(i, weight=1, uniform='tc')
 
-        def _temp_card(parent, title, col):
-            card = tk.Frame(parent, bg=SURFACE, padx=14, pady=12)
+        def _temp_card(title, col, accent):
+            card = tk.Frame(temp_row, bg=SURFACE, padx=16, pady=14)
             card.grid(row=0, column=col, sticky='nsew', padx=(0 if col == 0 else 6, 0))
-            tk.Label(card, text=title, bg=SURFACE, fg=SUBTEXT,
+            tk.Label(card, text=title, bg=SURFACE, fg=accent,
                      font=('Helvetica Neue', 10, 'bold')).pack(anchor='w')
             lbl = tk.Label(card, text='—', bg=SURFACE, fg=TEXT,
-                           font=('Helvetica Neue', 20, 'bold'))
-            lbl.pack(anchor='w', pady=(4, 0))
+                           font=('Helvetica Neue', 22, 'bold'))
+            lbl.pack(anchor='w', pady=(6, 0))
             return lbl
 
-        self._temp_lbl = _temp_card(temp_row, 'CPU 온도', 0)
-        self._gpu_lbl  = _temp_card(temp_row, 'GPU 온도', 1)
-        self._bat_lbl  = _temp_card(temp_row, '배터리 온도', 2)
+        self._temp_lbl = _temp_card('CPU 온도', 0, PEACH)
+        self._gpu_lbl  = _temp_card('GPU 온도', 1, BLUE)
+        self._bat_lbl  = _temp_card('배터리 온도', 2, GREEN)
 
-        # 팬 카드 + 전원 모드 카드 행
         info_row = tk.Frame(t1, bg=BG)
         info_row.pack(fill='x', padx=16, pady=(0, 8))
         info_row.columnconfigure(0, weight=1)
         info_row.columnconfigure(1, weight=1)
 
-        fan_card = tk.Frame(info_row, bg=SURFACE, padx=14, pady=12)
+        # 팬 상태 카드
+        fan_card = tk.Frame(info_row, bg=SURFACE, padx=16, pady=14)
         fan_card.grid(row=0, column=0, sticky='nsew', padx=(0, 6))
         tk.Label(fan_card, text='팬 상태', bg=SURFACE, fg=SUBTEXT,
-                 font=('Helvetica Neue', 10, 'bold')).pack(anchor='w', pady=(0, 6))
-        for key, attr in [('현재', '_fan_lbl'), ('범위', '_fan_rng_lbl'), ('모드', '_fan_mode_lbl')]:
-            row = tk.Frame(fan_card, bg=SURFACE)
-            row.pack(fill='x', pady=1)
-            tk.Label(row, text=f'{key}:', bg=SURFACE, fg=DIM,
-                     font=('Helvetica Neue', 11), width=5, anchor='w').pack(side='left')
-            lbl = tk.Label(row, text='—', bg=SURFACE, fg=TEXT,
-                           font=('Helvetica Neue', 11, 'bold'), anchor='w')
-            lbl.pack(side='left', fill='x')
+                 font=('Helvetica Neue', 10, 'bold')).pack(anchor='w', pady=(0, 8))
+        for key, attr in [('현재 속도', '_fan_lbl'), ('속도 범위', '_fan_rng_lbl'), ('제어 모드', '_fan_mode_lbl')]:
+            r = tk.Frame(fan_card, bg=SURFACE)
+            r.pack(fill='x', pady=2)
+            tk.Label(r, text=key, bg=SURFACE, fg=SUBTEXT,
+                     font=('Helvetica Neue', 10), width=8, anchor='w').pack(side='left')
+            lbl = tk.Label(r, text='—', bg=SURFACE, fg=TEXT,
+                           font=('Helvetica Neue', 12, 'bold'), anchor='w')
+            lbl.pack(side='left', fill='x', padx=(6, 0))
             setattr(self, attr, lbl)
 
-        mode_card = tk.Frame(info_row, bg=SURFACE, padx=14, pady=12)
+        # 전원 모드 카드
+        mode_card = tk.Frame(info_row, bg=SURFACE, padx=16, pady=14)
         mode_card.grid(row=0, column=1, sticky='nsew')
         tk.Label(mode_card, text='전원 모드', bg=SURFACE, fg=SUBTEXT,
                  font=('Helvetica Neue', 10, 'bold')).pack(anchor='w')
-        self._mode_lbl = tk.Label(mode_card, text='—', bg=SURFACE, fg=TEXT,
-                                   font=('Helvetica Neue', 16, 'bold'))
-        self._mode_lbl.pack(anchor='w', pady=(4, 8))
+        self._mode_lbl = tk.Label(mode_card, text='—', bg=SURFACE, fg=GREEN,
+                                   font=('Helvetica Neue', 18, 'bold'))
+        self._mode_lbl.pack(anchor='w', pady=(6, 12))
         mode_btn_row = tk.Frame(mode_card, bg=SURFACE)
         mode_btn_row.pack(fill='x')
         self._btn_low    = self._mode_btn(mode_btn_row, '🌙 절전', BLUE, 'low')
@@ -394,11 +438,11 @@ class FanApp(tk.Tk):
         self._btn_low.pack(side='left', expand=True, fill='x', padx=(0, 4))
         self._btn_normal.pack(side='left', expand=True, fill='x')
 
-        self._hint_lbl = tk.Label(t1, bg=BG, fg=DIM,
-                                   font=('Helvetica Neue', 10), wraplength=750)
-        self._hint_lbl.pack(anchor='w', padx=16, pady=(0, 6))
-        tk.Label(t1, text='전원 모드 변경 시 시스템 암호가 필요합니다.',
-                 bg=BG, fg=BORDER, font=('Helvetica Neue', 9)).pack(anchor='w', padx=16)
+        self._hint_lbl = tk.Label(t1, bg=BG, fg=SUBTEXT,
+                                   font=('Helvetica Neue', 10), wraplength=800)
+        self._hint_lbl.pack(anchor='w', padx=16, pady=(4, 2))
+        tk.Label(t1, text='* 전원 모드 변경 시 시스템 암호가 필요합니다.',
+                 bg=BG, fg=DIM, font=('Helvetica Neue', 9)).pack(anchor='w', padx=16)
         self._update_mode_ui()
 
         # ── Tab 2: 팬 제어 ────────────────────────────────────────────────────
@@ -406,26 +450,36 @@ class FanApp(tk.Tk):
         nb.add(t2, text='  🌀 팬 제어  ')
 
         tk.Label(t2, text='팬 속도 프리셋', bg=BG, fg=SUBTEXT,
-                 font=('Helvetica Neue', 10, 'bold')).pack(anchor='w', padx=16, pady=(16, 6))
+                 font=('Helvetica Neue', 10, 'bold')).pack(anchor='w', padx=16, pady=(18, 8))
 
         s_fan = 'normal' if SMC else 'disabled'
         preset_row = tk.Frame(t2, bg=BG)
-        preset_row.pack(fill='x', padx=16, pady=(0, 8))
+        preset_row.pack(fill='x', padx=16, pady=(0, 10))
         self._preset_btns = []
-        for label, rpm in [('🔇 저속', 1200), ('🔁 일반', 2500), ('🚀 고성능', 4500)]:
+        preset_defs = [('🔇 저속', 1200, BLUE, '#1a2a40'),
+                       ('🔁 일반', 2500, GREEN, '#1a301e'),
+                       ('🚀 고성능', 4500, RED, '#301a1e')]
+        for label, rpm, accent, hover_bg in preset_defs:
             b = tk.Button(
-                preset_row, text=f'{label}\n{rpm:,} rpm',
-                bg=SURFACE, fg=TEXT, font=('Helvetica Neue', 12, 'bold'),
-                bd=0, pady=14, cursor='hand2', relief='flat', state=s_fan,
+                preset_row,
+                text=f'{label}\n{rpm:,} rpm',
+                bg=SURFACE, fg=TEXT,
+                font=('Helvetica Neue', 13, 'bold'),
+                bd=0, pady=16, cursor='hand2', relief='flat', state=s_fan,
+                activebackground=accent, activeforeground=BG,
                 command=lambda r=rpm: self._apply_preset(r)
             )
+            b.bind('<Enter>', lambda e, w=b, a=accent: w.config(bg=a, fg=TEXT))
+            b.bind('<Leave>', lambda e, w=b: w.config(bg=SURFACE, fg=TEXT))
             b.pack(side='left', expand=True, fill='x', padx=4)
             self._preset_btns.append(b)
 
         self._btn_fan_auto = tk.Button(
-            t2, text='🔄 자동 모드로 복구 (macOS 기본)',
-            bg=SURFACE, fg=SUBTEXT, font=('Helvetica Neue', 11),
-            bd=0, pady=8, cursor='hand2', relief='flat', state=s_fan,
+            t2, text='🔄  자동 모드로 복구  (macOS 기본)',
+            bg=SURFACE, fg=SUBTEXT,
+            font=('Helvetica Neue', 12),
+            bd=0, pady=10, cursor='hand2', relief='flat', state=s_fan,
+            activebackground=BORDER, activeforeground=TEXT,
             command=self._reset_fan_auto
         )
         self._btn_fan_auto.pack(fill='x', padx=16, pady=(0, 14))
@@ -433,11 +487,11 @@ class FanApp(tk.Tk):
         tk.Frame(t2, bg=BORDER, height=1).pack(fill='x', padx=16)
 
         sl_hdr = tk.Frame(t2, bg=BG)
-        sl_hdr.pack(fill='x', padx=16, pady=(12, 4))
+        sl_hdr.pack(fill='x', padx=16, pady=(14, 4))
         tk.Label(sl_hdr, text='커스텀 RPM', bg=BG, fg=SUBTEXT,
                  font=('Helvetica Neue', 10, 'bold')).pack(side='left')
         self._slider_val_lbl = tk.Label(sl_hdr, bg=BG, fg=BLUE,
-                                         font=('Helvetica Neue', 15, 'bold'))
+                                         font=('Helvetica Neue', 17, 'bold'))
         self._slider_val_lbl.pack(side='right')
 
         self._slider_var = tk.IntVar(value=2500)
@@ -453,41 +507,41 @@ class FanApp(tk.Tk):
         self._slider_val_lbl.config(text=f'{self._slider_var.get():,} rpm')
 
         self._fan_apply_btn = tk.Button(
-            t2, text='적용',
-            bg=BLUE, fg=BG, font=('Helvetica Neue', 13, 'bold'),
-            bd=0, padx=12, pady=8, cursor='hand2', relief='flat', state=s_fan,
+            t2, text='  적용  ',
+            bg=BLUE, fg='#1e1e2e',
+            font=('Helvetica Neue', 13, 'bold'),
+            bd=0, padx=16, pady=10, cursor='hand2', relief='flat', state=s_fan,
+            activebackground='#5a9af0', activeforeground='#1e1e2e',
             command=self._apply_fan_custom
         )
-        self._fan_apply_btn.pack(fill='x', padx=16, pady=(4, 0))
+        self._fan_apply_btn.pack(fill='x', padx=16, pady=(6, 0))
 
         if not SMC:
             tk.Label(t2, text='⚠  smcFanControl 앱이 설치되어 있어야 팬 제어가 가능합니다.',
-                     bg=BG, fg=DIM, font=('Helvetica Neue', 10), wraplength=750
-                     ).pack(padx=16, pady=(8, 0))
+                     bg=BG, fg=YELLOW, font=('Helvetica Neue', 10), wraplength=800
+                     ).pack(padx=16, pady=(10, 0))
 
         # ── Tab 3: 배터리 ─────────────────────────────────────────────────────
         t3 = tk.Frame(nb, bg=BG)
         nb.add(t3, text='  🔋 배터리  ')
 
         bat_grid = tk.Frame(t3, bg=BG)
-        bat_grid.pack(fill='x', padx=16, pady=16)
+        bat_grid.pack(fill='x', padx=16, pady=18)
         for i in range(4):
             bat_grid.columnconfigure(i, weight=1, uniform='bg')
 
-        def _bat_card(title, col):
-            card = tk.Frame(bat_grid, bg=SURFACE, padx=14, pady=14)
-            card.grid(row=0, column=col, sticky='nsew', padx=(0 if col == 0 else 6, 0))
-            tk.Label(card, text=title, bg=SURFACE, fg=SUBTEXT,
+        bat_accents = [YELLOW, GREEN, BLUE, PEACH]
+        bat_labels = ['충전 횟수', '최대 용량', '잔여 시간', '배터리 상태']
+        bat_attrs  = ['_bat_cycle_lbl', '_bat_cap_lbl', '_bat_remain_lbl', '_bat_status_lbl']
+        for i, (title, attr, accent) in enumerate(zip(bat_labels, bat_attrs, bat_accents)):
+            card = tk.Frame(bat_grid, bg=SURFACE, padx=16, pady=16)
+            card.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 6, 0))
+            tk.Label(card, text=title, bg=SURFACE, fg=accent,
                      font=('Helvetica Neue', 10, 'bold')).pack(anchor='w')
             lbl = tk.Label(card, text='—', bg=SURFACE, fg=TEXT,
                            font=('Helvetica Neue', 18, 'bold'))
-            lbl.pack(anchor='w', pady=(6, 0))
-            return lbl
-
-        self._bat_cycle_lbl  = _bat_card('충전 횟수', 0)
-        self._bat_cap_lbl    = _bat_card('최대 용량', 1)
-        self._bat_remain_lbl = _bat_card('잔여 시간', 2)
-        self._bat_status_lbl = _bat_card('배터리 상태', 3)
+            lbl.pack(anchor='w', pady=(8, 0))
+            setattr(self, attr, lbl)
 
     # ── 위젯 헬퍼 ────────────────────────────────────────────────────────────
 
@@ -495,12 +549,75 @@ class FanApp(tk.Tk):
         btn = tk.Button(
             parent, text=text, bg=SURFACE, fg=TEXT,
             font=('Helvetica Neue', 12, 'bold'),
-            bd=0, padx=10, pady=7, cursor='hand2', relief='flat',
+            bd=0, padx=10, pady=9, cursor='hand2', relief='flat',
+            activebackground=color, activeforeground=BG,
             command=lambda: self._apply_mode(mode)
         )
         btn.bind('<Enter>', lambda e: btn.config(bg=color, fg=BG))
         btn.bind('<Leave>', lambda e: self._update_mode_ui())
         return btn
+
+    # ── macOS 메뉴바 위젯 ──────────────────────────────────────────────────────
+
+    def _setup_menubar(self):
+        if not _APPKIT:
+            return
+        try:
+            sb = NSStatusBar.systemStatusBar()
+            self._mb_item = sb.statusItemWithLength_(-1)
+            self._mb_item.setTitle_("🌡️ —")
+
+            menu = NSMenu.alloc().init()
+            menu.setAutoenablesItems_(False)
+
+            # 앱 이름 (비활성)
+            title_mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                f'맥북 팬 관리  v{VERSION}', None, '')
+            title_mi.setEnabled_(False)
+            menu.addItem_(title_mi)
+            menu.addItem_(NSMenuItem.separatorItem())
+
+            # 상태 항목들 (비활성 — 정보 표시용)
+            self._mb_cpu_mi  = self._mb_info_item(menu, 'CPU  —')
+            self._mb_gpu_mi  = self._mb_info_item(menu, 'GPU  —')
+            self._mb_fan_mi  = self._mb_info_item(menu, '팬    —')
+            self._mb_bat_mi  = self._mb_info_item(menu, '배터리  —')
+            menu.addItem_(NSMenuItem.separatorItem())
+
+            # 앱 열기 / 종료
+            delegate = _MenuBarDelegate.alloc().init()
+            delegate.set_callbacks(
+                lambda: self.after(0, self._bring_to_front),
+                lambda: self.after(0, self.destroy)
+            )
+            self._mb_delegate = delegate  # 참조 유지
+
+            show_mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                '앱 열기', 'showApp:', '')
+            show_mi.setTarget_(delegate)
+            show_mi.setEnabled_(True)
+            menu.addItem_(show_mi)
+
+            quit_mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                '종료', 'quitApp:', 'q')
+            quit_mi.setTarget_(delegate)
+            quit_mi.setEnabled_(True)
+            menu.addItem_(quit_mi)
+
+            self._mb_item.setMenu_(menu)
+        except Exception:
+            pass
+
+    def _mb_info_item(self, menu, text):
+        mi = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(text, None, '')
+        mi.setEnabled_(False)
+        menu.addItem_(mi)
+        return mi
+
+    def _bring_to_front(self):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
 
     # ── 상태 업데이트 ─────────────────────────────────────────────────────────
 
@@ -509,32 +626,39 @@ class FanApp(tk.Tk):
             'low':    '🌙 절전 모드 활성 — CPU 성능 제한, 발열·팬소음 감소',
             'normal': '⚡ 기본 모드 활성 — macOS 기본 전원 관리',
         }
-        self._btn_low.config(bg=BLUE if self._mode=='low' else SURFACE,
-                             fg=BG   if self._mode=='low' else TEXT)
-        self._btn_normal.config(bg=GREEN if self._mode=='normal' else SURFACE,
-                                fg=BG    if self._mode=='normal' else TEXT)
-        self._mode_lbl.config(
-            text='절전 🌙' if self._mode=='low' else '기본 ⚡',
-            fg=BLUE if self._mode=='low' else GREEN)
+        is_low = self._mode == 'low'
+        self._btn_low.config(bg=BLUE if is_low else SURFACE,
+                             fg=BG   if is_low else TEXT)
+        self._btn_normal.config(bg=GREEN if not is_low else SURFACE,
+                                fg=BG    if not is_low else TEXT)
+        mode_txt = '🌙 절전' if is_low else '⚡ 기본'
+        self._mode_lbl.config(text=mode_txt,
+                               fg=BLUE if is_low else GREEN)
         self._hint_lbl.config(text=hints.get(self._mode, ''))
+        self._strip_labels['mode'].config(text=mode_txt,
+                                          fg=BLUE if is_low else GREEN)
 
     def _refresh(self):
         cpu_temp, gpu_temp, battery_temp, fan_rpm, fan_min, fan_max, fan_manual = get_thermal()
 
-        txt, col = temp_label(cpu_temp)
-        self._temp_lbl.config(text=txt, fg=col)
+        cpu_txt, cpu_col = temp_label(cpu_temp)
+        self._temp_lbl.config(text=cpu_txt, fg=cpu_col)
+        self._strip_labels['cpu'].config(text=cpu_txt, fg=cpu_col)
 
-        txt, col = temp_label(gpu_temp)
-        self._gpu_lbl.config(text=txt, fg=col)
+        gpu_txt, gpu_col = temp_label(gpu_temp)
+        self._gpu_lbl.config(text=gpu_txt, fg=gpu_col)
+        self._strip_labels['gpu'].config(text=gpu_txt, fg=gpu_col)
 
-        txt, col = temp_label(battery_temp)
-        self._bat_lbl.config(text=txt, fg=col)
+        bat_txt, bat_col = temp_label(battery_temp)
+        self._bat_lbl.config(text=bat_txt, fg=bat_col)
+        self._strip_labels['bat_t'].config(text=bat_txt, fg=bat_col)
 
-        txt, col = fan_label(fan_rpm)
-        self._fan_lbl.config(text=txt, fg=col)
+        fan_txt, fan_col = fan_label(fan_rpm)
+        self._fan_lbl.config(text=fan_txt, fg=fan_col)
+        self._strip_labels['fan'].config(text=fan_txt, fg=fan_col)
 
         if fan_min is not None and fan_max is not None:
-            self._fan_rng_lbl.config(text=f'{fan_min:,} ~ {fan_max:,} rpm', fg=DIM)
+            self._fan_rng_lbl.config(text=f'{fan_min:,} ~ {fan_max:,} rpm', fg=SUBTEXT)
         else:
             self._fan_rng_lbl.config(text='N/A', fg=DIM)
 
@@ -544,8 +668,17 @@ class FanApp(tk.Tk):
         self._fan_mode_lbl.config(text=mode_txt, fg=mode_col)
         self._btn_fan_auto.config(
             bg=BLUE if fan_manual else SURFACE,
-            fg=BG if fan_manual else SUBTEXT
-        )
+            fg=BG if fan_manual else SUBTEXT)
+
+        # 메뉴바 위젯 업데이트
+        if self._mb_item:
+            mb_title = f'🌡️ {cpu_txt.split()[0]}' if cpu_temp else '🌡️ —'
+            self._mb_item.setTitle_(mb_title)
+            self._mb_cpu_mi.setTitle_(f'CPU     {cpu_txt}')
+            self._mb_gpu_mi.setTitle_(f'GPU     {gpu_txt}')
+            self._mb_fan_mi.setTitle_(f'팬       {fan_txt}')
+            bat_t_short = bat_txt.split()[0] if battery_temp else '—'
+            self._mb_bat_mi.setTitle_(f'배터리  {bat_t_short}')
 
     def _schedule_refresh(self):
         def loop():
