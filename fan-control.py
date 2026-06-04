@@ -3,10 +3,10 @@
 
 import tkinter as tk
 from tkinter import messagebox, ttk
-import subprocess, threading, re, time, shutil, os, sys, tempfile, struct, fcntl
+import subprocess, threading, re, time, shutil, os, sys, tempfile, struct, queue
 import urllib.request, json, webbrowser
 
-VERSION = "1.4.5"
+VERSION = "1.4.6"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
 
@@ -430,13 +430,16 @@ class FanApp(tk.Tk):
         self._mb_item        = None   # NSStatusItem
         self._mb_show_win_mi = None
         self._window_visible = True
+        # 백그라운드 스레드 → 메인 스레드 안전 전달용 큐 (Python 3.12+ after() 비스레드세이프 대응)
+        self._ui_queue = queue.Queue()
         # 앱 시작 시 현재 팬 RPM 읽어서 슬라이더 초기값으로 사용
         _fan_now = _smc_read_decimal('F0Ac')
         self._init_fan_rpm = max(1200, min(6000, int(_fan_now))) if _fan_now and _fan_now > 0 else 2500
         self._build()
+        self._poll_ui_queue()   # 20ms 메인 스레드 큐 폴링 시작
         self._refresh()
         self._refresh_battery()
-        threading.Thread(target=self._refresh_battery_full, daemon=True).start()
+        self._refresh_battery_full()
         self._schedule_refresh()
         threading.Thread(target=self._auto_check_update, daemon=True).start()
         if _APPKIT:
@@ -882,92 +885,50 @@ class FanApp(tk.Tk):
             bat_t_short = bat_txt.split()[0] if battery_temp else '—'
             self._mb_bat_mi.setTitle_(f'배터리   {bat_t_short}')
 
-    def _setup_power_source_watcher(self):
-        """IOKit 전원 이벤트 → pipe → tkinter 파일핸들러. 콜백 재진입 없이 안전."""
-        try:
-            import ctypes
-            _IOKit = ctypes.cdll.LoadLibrary(
-                '/System/Library/Frameworks/IOKit.framework/IOKit')
-            _CF = ctypes.cdll.LoadLibrary(
-                '/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
+    def _poll_ui_queue(self):
+        """20ms마다 메인 스레드에서 백그라운드 큐 처리. self.after()를 메인 스레드에서만 호출."""
+        while True:
+            try:
+                func = self._ui_queue.get_nowait()
+                func()
+            except queue.Empty:
+                break
+        self.after(20, self._poll_ui_queue)
 
-            _CF.CFRunLoopGetMain.restype     = ctypes.c_void_p
-            _CF.CFRunLoopAddSource.argtypes  = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-            _IOKit.IOPSNotificationCreateRunLoopSource.restype = ctypes.c_void_p
-
-            kCFRunLoopDefaultMode = ctypes.c_void_p.in_dll(_CF, 'kCFRunLoopDefaultMode')
-
-            # pipe: IOKit 콜백(C컨텍스트)에서는 os.write만, tkinter는 read로 처리
-            r_fd, w_fd = os.pipe()
-            # r_fd를 non-blocking으로 설정
-            fcntl.fcntl(r_fd, fcntl.F_SETFL, os.O_NONBLOCK)
-
-            CALLBACK = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
-
-            def _on_power_change(info):
-                try:
-                    os.write(w_fd, b'\x01')  # Python/Tcl 호출 없이 바이트만 쓰기
-                except OSError:
-                    pass
-
-            cb = CALLBACK(_on_power_change)
-            self._ps_callback_ref = cb  # GC 방지
-            self._ps_pipe_fds = (r_fd, w_fd)
-
-            source = _IOKit.IOPSNotificationCreateRunLoopSource(cb, None)
-            if not source:
-                return False
-
-            main_loop = _CF.CFRunLoopGetMain()
-            _CF.CFRunLoopAddSource(main_loop, ctypes.c_void_p(source), kCFRunLoopDefaultMode)
-
-            # tkinter 파일핸들러: 메인 스레드에서 안전하게 처리
-            def _on_pipe_readable(fd, mask):
-                try:
-                    os.read(fd, 64)  # 파이프 비우기
-                except OSError:
-                    pass
-                self._refresh_battery()
-
-            self.tk.createfilehandler(r_fd, tk.READABLE, _on_pipe_readable)
-            return True
-        except Exception as e:
-            print(f'power watcher setup error: {e}')
-            return False
+    def _enqueue(self, func):
+        """백그라운드 스레드에서 UI 작업을 큐에 넣는다 (thread-safe)."""
+        self._ui_queue.put(func)
 
     def _schedule_refresh(self):
-        # 온도/팬: 5초마다 (SMC는 이벤트 API 없어 폴링 불가피)
+        # 온도/팬: 5초마다
         def thermal_loop():
             while True:
                 time.sleep(5)
-                self.after(0, self._refresh)
+                self._enqueue(self._refresh)
         threading.Thread(target=thermal_loop, daemon=True).start()
 
-        # 충전 상태: IOKit 이벤트 기반 (메인 RunLoop) + 2초 변경 감지 폴링 병행
-        self._setup_power_source_watcher()
-
+        # 배터리 충전 상태: 1초마다 변경 감지 (상태 바뀔 때만 UI 업데이트)
         def battery_poll_loop():
-            """2초마다 상태 변화 감지 — IOKit 이벤트 보조 & 폴백."""
             last_key = ''
             while True:
-                time.sleep(2)
+                time.sleep(1)
                 out, _ = shell('pmset -g batt 2>/dev/null')
-                # 배터리 라인 한 줄만 추출해 변화 감지 키로 사용
                 for line in out.splitlines():
-                    if 'InternalBattery' in line or '%' in line:
-                        if line != last_key:
-                            last_key = line
-                            self.after(0, self._refresh_battery)
+                    if 'InternalBattery' in line:
+                        key = line.strip()
+                        if key != last_key:
+                            last_key = key
+                            self._enqueue(self._refresh_battery)
                         break
         threading.Thread(target=battery_poll_loop, daemon=True).start()
 
-        # 배터리 상세 정보: 60초마다 (데이터 조회 후 self.after로 UI 업데이트)
+        # 배터리 상세 정보: 60초마다
         def battery_full_loop():
             while True:
                 time.sleep(60)
                 cycle, capacity, condition, _, _ = get_battery_info()
-                self.after(0, lambda c=cycle, cap=capacity, cond=condition:
-                           self._apply_battery_full_ui(c, cap, cond))
+                self._enqueue(lambda c=cycle, cap=capacity, cond=condition:
+                              self._apply_battery_full_ui(c, cap, cond))
         threading.Thread(target=battery_full_loop, daemon=True).start()
 
     # ── 전원 모드 액션 ───────────────────────────────────────────────────────
@@ -977,7 +938,7 @@ class FanApp(tk.Tk):
         self._btn_normal.config(state='disabled')
         def worker():
             ok = admin(f'pmset lowpowermode {"1" if mode=="low" else "0"}')
-            self.after(0, self._on_mode_done, ok, mode)
+            self._enqueue(lambda: self._on_mode_done(ok, mode))
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_mode_done(self, ok, mode):
@@ -999,7 +960,7 @@ class FanApp(tk.Tk):
         self._set_fan_busy(True)
         def worker():
             ok = set_fan_speed(rpm)
-            self.after(0, self._on_fan_set_done, ok, rpm)
+            self._enqueue(lambda: self._on_fan_set_done(ok, rpm))
         threading.Thread(target=worker, daemon=True).start()
 
     def _apply_fan_custom(self):
@@ -1007,15 +968,15 @@ class FanApp(tk.Tk):
         self._fan_apply_btn.config(state='disabled', text='적용 중…')
         def worker():
             ok = set_fan_speed(rpm)
-            self.after(0, self._on_fan_set_done, ok, rpm)
-            self.after(0, lambda: self._fan_apply_btn.config(state='normal', text='  적용  '))
+            self._enqueue(lambda: self._on_fan_set_done(ok, rpm))
+            self._enqueue(lambda: self._fan_apply_btn.config(state='normal', text='  적용  '))
         threading.Thread(target=worker, daemon=True).start()
 
     def _reset_fan_auto(self):
         self._btn_fan_auto.config(state='disabled', text='복구 중…')
         def worker():
             ok = reset_fan_to_auto()
-            self.after(0, self._on_fan_auto_done, ok)
+            self._enqueue(lambda: self._on_fan_auto_done(ok))
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_fan_set_done(self, ok, rpm):
@@ -1047,24 +1008,27 @@ class FanApp(tk.Tk):
 
         m_remain = re.search(r'(\d+:\d+)\s+remaining', out)
         remain = m_remain.group(1) if m_remain else None
-        has_time = remain and remain != '0:00'
+        has_time = remain and remain not in ('0:00', '(no estimate)')
 
         if charged:
             self._bat_remain_lbl.config(text='⚡ 완충', fg=GREEN)
         elif charging:
-            self._bat_remain_lbl.config(
-                text=f'⚡ 충전 중  {remain} 후 완충' if has_time else '⚡ 충전 중',
-                fg=BLUE)
+            if has_time:
+                self._bat_remain_lbl.config(text=f'⚡ 충전 중  {remain} 후 완충', fg=BLUE)
+            elif 'no estimate' in out:
+                self._bat_remain_lbl.config(text='⚡ 충전 중  (시간 계산 중…)', fg=BLUE)
+            else:
+                self._bat_remain_lbl.config(text='⚡ 충전 중', fg=BLUE)
         else:
             self._bat_remain_lbl.config(
                 text=f'🔋 방전 중  {remain} 남음' if has_time else '🔋 방전 중',
                 fg=GREEN if has_time else SUBTEXT)
 
     def _refresh_battery_full(self):
-        """백그라운드에서 데이터 조회 → 메인 스레드에서 위젯 업데이트."""
+        """백그라운드에서 데이터 조회 → 큐로 메인 스레드에 전달."""
         def _fetch():
             cycle, capacity, condition, _, _ = get_battery_info()
-            self.after(0, lambda: self._apply_battery_full_ui(cycle, capacity, condition))
+            self._enqueue(lambda: self._apply_battery_full_ui(cycle, capacity, condition))
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _apply_battery_full_ui(self, cycle, capacity, condition):
@@ -1092,13 +1056,13 @@ class FanApp(tk.Tk):
         time.sleep(3)
         latest, url = fetch_release_info()
         if latest and _parse_version(latest) > _parse_version(VERSION):
-            self.after(0, self._show_update_banner, latest, url)
+            self._enqueue(lambda: self._show_update_banner(latest, url))
 
     def _check_update_manual(self):
         self._update_btn.config(text='확인 중…', state='disabled')
         def worker():
             latest, url = fetch_release_info()
-            self.after(0, self._on_manual_check, latest, url)
+            self._enqueue(lambda: self._on_manual_check(latest, url))
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_manual_check(self, latest, url):
@@ -1197,20 +1161,20 @@ class FanApp(tk.Tk):
         def worker():
             try:
                 ok = do_auto_update(dmg_url, app_path,
-                                    progress_cb=lambda p: self.after(0, set_progress, p))
+                                    progress_cb=lambda p: self._enqueue(lambda p=p: set_progress(p)))
                 if ok:
-                    self.after(0, lambda: (
+                    self._enqueue(lambda: (
                         win.destroy(),
                         messagebox.showinfo('업데이트', '업데이트 완료!\n앱을 재시작합니다.'),
                         self.destroy()
                     ))
                 else:
-                    self.after(0, lambda: (
+                    self._enqueue(lambda: (
                         win.destroy(),
                         messagebox.showerror('실패', 'DMG 마운트 실패\n수동으로 다운로드해 주세요.')
                     ))
             except Exception as e:
-                self.after(0, lambda: (
+                self._enqueue(lambda e=e: (
                     win.destroy(),
                     messagebox.showerror('실패', f'업데이트 오류:\n{e}')
                 ))
