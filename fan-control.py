@@ -6,7 +6,7 @@ from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct, queue
 import urllib.request, json, webbrowser
 
-VERSION = "1.5.0"
+VERSION = "1.5.2"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
 
@@ -749,13 +749,13 @@ class FanApp(tk.Tk):
         self._var_hidden  = tk.IntVar(value=1 if self._settings.get('start_hidden') else 0)
 
         def _on_login_change(val):
+            self._settings['launch_at_login'] = val
+            save_settings(self._settings)
             def _worker():
                 _set_login_item(val)
                 actual = _login_item_exists()
-                self._var_login.set(1 if actual else 0)
+                self._enqueue(lambda: self._var_login.set(1 if actual else 0))
             threading.Thread(target=_worker, daemon=True).start()
-            self._settings['launch_at_login'] = val
-            save_settings(self._settings)
 
         def _on_hidden_change(val):
             self._settings['start_hidden'] = val
@@ -936,10 +936,12 @@ class FanApp(tk.Tk):
     def _on_toggle_temp(self, val: bool):
         self._settings['mb_show_temp'] = val
         save_settings(self._settings)
+        self._var_mb_temp.set(1 if val else 0)
 
     def _on_toggle_fan(self, val: bool):
         self._settings['mb_show_fan'] = val
         save_settings(self._settings)
+        self._var_mb_fan.set(1 if val else 0)
 
     # ── 상태 업데이트 ─────────────────────────────────────────────────────────
 
