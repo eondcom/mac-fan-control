@@ -6,20 +6,36 @@ from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct, queue
 import urllib.request, json, webbrowser
 
-VERSION = "1.4.7"
+VERSION = "1.5.0"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
 
 # ── 설정 저장/불러오기 ────────────────────────────────────────────────────────
 
 def load_settings():
-    defaults = {'mb_show_temp': True, 'mb_show_fan': True}
+    defaults = {
+        'mb_show_temp':      True,
+        'mb_show_fan':       True,
+        'launch_at_login':   False,
+        'start_hidden':      False,
+    }
     try:
         with open(SETTINGS_PATH) as f:
             defaults.update(json.load(f))
     except Exception:
         pass
     return defaults
+
+def _login_item_exists():
+    out, _ = shell("osascript -e 'tell application \"System Events\" to get the name of every login item' 2>/dev/null")
+    return 'MacFanControl' in out
+
+def _set_login_item(enable):
+    app_path = get_app_path() or '/Applications/MacFanControl.app'
+    if enable:
+        shell(f"osascript -e 'tell application \"System Events\" to make login item at end with properties {{path:\"{app_path}\", hidden:false}}' 2>/dev/null")
+    else:
+        shell("osascript -e 'tell application \"System Events\" to delete login item \"MacFanControl\"' 2>/dev/null")
 
 def save_settings(s):
     try:
@@ -444,6 +460,8 @@ class FanApp(tk.Tk):
         threading.Thread(target=self._auto_check_update, daemon=True).start()
         if _APPKIT:
             self.after(200, self._setup_menubar)
+        if self._settings.get('start_hidden', False):
+            self.after(300, self._hide_window)
         # 창 닫기 → 숨기기 (메뉴바 앱으로 계속 실행)
         self.protocol('WM_DELETE_WINDOW', self._hide_window)
 
@@ -673,6 +691,101 @@ class FanApp(tk.Tk):
                                font=('Helvetica Neue', 18, 'bold'))
             lbl.pack(anchor='w', pady=(8, 0))
             setattr(self, attr, lbl)
+
+        # ── Tab 4: 설정 ───────────────────────────────────────────────────────
+        t4 = tk.Frame(nb, bg=BG)
+        nb.add(t4, text='  ⚙️ 설정  ')
+
+        def _section(parent, title):
+            tk.Label(parent, text=title, bg=BG, fg=SUBTEXT,
+                     font=('Helvetica Neue', 10, 'bold')).pack(anchor='w', padx=20, pady=(18, 6))
+            tk.Frame(parent, bg=BORDER, height=1).pack(fill='x', padx=20)
+
+        def _toggle_row(parent, label, desc, var, on_change):
+            row = tk.Frame(parent, bg=SURFACE, padx=20, pady=14)
+            row.pack(fill='x', padx=20, pady=(1, 0))
+            txt_col = tk.Frame(row, bg=SURFACE)
+            txt_col.pack(side='left', fill='x', expand=True)
+            tk.Label(txt_col, text=label, bg=SURFACE, fg=TEXT,
+                     font=('Helvetica Neue', 12)).pack(anchor='w')
+            if desc:
+                tk.Label(txt_col, text=desc, bg=SURFACE, fg=DIM,
+                         font=('Helvetica Neue', 10)).pack(anchor='w')
+            # 커스텀 토글 스위치
+            toggle_frame = tk.Frame(row, bg=SURFACE)
+            toggle_frame.pack(side='right')
+            state_lbl = tk.Label(toggle_frame, bg=SURFACE, fg=DIM,
+                                 font=('Helvetica Neue', 10), width=3)
+            state_lbl.pack(side='left', padx=(0, 6))
+            btn = FlatBtn(toggle_frame, text='',
+                          bg=BORDER, fg=TEXT,
+                          font=('Helvetica Neue', 11), padx=20, pady=6,
+                          hover_bg=BORDER, hover_fg=TEXT,
+                          command=None)
+            btn.pack(side='left')
+
+            def _refresh_toggle():
+                v = var.get()
+                state_lbl.config(text='ON' if v else 'OFF',
+                                 fg=GREEN if v else DIM)
+                btn.set_colors(bg=GREEN if v else BORDER,
+                               fg='#1e1e2e' if v else SUBTEXT)
+                btn._lbl.config(text='●' if v else '○')
+
+            def _click():
+                var.set(0 if var.get() else 1)
+                _refresh_toggle()
+                on_change(bool(var.get()))
+
+            btn._cmd = _click
+            btn._lbl.bind('<Button-1>', lambda e: _click())
+            _refresh_toggle()
+            return btn
+
+        # ── 실행 설정 ────────────────────────────────────────────────────────
+        _section(t4, '실행')
+
+        self._var_login   = tk.IntVar(value=1 if _login_item_exists() else 0)
+        self._var_hidden  = tk.IntVar(value=1 if self._settings.get('start_hidden') else 0)
+
+        def _on_login_change(val):
+            def _worker():
+                _set_login_item(val)
+                actual = _login_item_exists()
+                self._var_login.set(1 if actual else 0)
+            threading.Thread(target=_worker, daemon=True).start()
+            self._settings['launch_at_login'] = val
+            save_settings(self._settings)
+
+        def _on_hidden_change(val):
+            self._settings['start_hidden'] = val
+            save_settings(self._settings)
+
+        _toggle_row(t4, '시스템 시작 시 자동 실행',
+                    '로그인 시 MacFanControl을 자동으로 시작합니다.',
+                    self._var_login, _on_login_change)
+        _toggle_row(t4, '시작 시 메뉴바로 숨기기',
+                    '앱 창 없이 메뉴바 아이콘으로만 실행됩니다.',
+                    self._var_hidden, _on_hidden_change)
+
+        # ── 메뉴바 표시 설정 ─────────────────────────────────────────────────
+        _section(t4, '메뉴바 표시')
+
+        self._var_mb_temp = tk.IntVar(value=1 if self._settings.get('mb_show_temp', True) else 0)
+        self._var_mb_fan  = tk.IntVar(value=1 if self._settings.get('mb_show_fan',  True) else 0)
+
+        def _on_mb_temp(val):
+            self._settings['mb_show_temp'] = val
+            save_settings(self._settings)
+
+        def _on_mb_fan(val):
+            self._settings['mb_show_fan'] = val
+            save_settings(self._settings)
+
+        _toggle_row(t4, 'CPU 온도 표시', '메뉴바에 CPU 온도를 표시합니다.',
+                    self._var_mb_temp, _on_mb_temp)
+        _toggle_row(t4, '팬 속도 표시',  '메뉴바에 팬 RPM을 표시합니다.',
+                    self._var_mb_fan,  _on_mb_fan)
 
     # ── 위젯 헬퍼 ────────────────────────────────────────────────────────────
 
