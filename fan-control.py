@@ -2,11 +2,11 @@
 """맥북 팬 · 전원 관리 — Intel MacBook / macOS Sequoia"""
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
 import urllib.request, json, webbrowser
 
-VERSION = "1.0.7"
+VERSION = "1.1.0"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 
 # ── smc 바이너리 탐색 ────────────────────────────────────────────────────────
@@ -286,7 +286,7 @@ class FanApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title('맥북 팬 관리')
-        self.resizable(False, False)
+        self.resizable(True, True)
         self.configure(bg=BG)
         self._mode = get_power_mode()
         self._build()
@@ -298,158 +298,204 @@ class FanApp(tk.Tk):
     # ── 레이아웃 ─────────────────────────────────────────────────────────────
 
     def _build(self):
-        self.geometry('380x780')
+        self.geometry('820x540')
+        self.minsize(700, 460)
 
-        # 제목
-        tk.Label(self, text='맥북 팬 · 전원 관리',
-                 bg=BG, fg=TEXT, font=('Helvetica Neue', 17, 'bold')
-                 ).pack(pady=(20, 2))
-        sub = tk.Frame(self, bg=BG)
-        sub.pack(pady=(0, 14))
-        tk.Label(sub, text='Intel MacBook · macOS Sequoia',
-                 bg=BG, fg=DIM, font=('Helvetica Neue', 11)).pack(side='left')
-        tk.Label(sub, text=f'  v{VERSION}',
-                 bg=BG, fg=BORDER, font=('Helvetica Neue', 11)).pack(side='left')
+        # ── ttk 다크 스타일 ───────────────────────────────────────────────────
+        style = ttk.Style(self)
+        style.theme_use('default')
+        style.configure('Dark.TNotebook', background=BG, borderwidth=0,
+                        tabmargins=[0, 0, 0, 0])
+        style.configure('Dark.TNotebook.Tab', background=SURFACE, foreground=SUBTEXT,
+                        padding=[18, 7], font=('Helvetica Neue', 11),
+                        borderwidth=0, focuscolor=BG)
+        style.map('Dark.TNotebook.Tab',
+                  background=[('selected', BG), ('active', BORDER)],
+                  foreground=[('selected', TEXT), ('active', TEXT)])
+        style.layout('Dark.TNotebook.Tab', [
+            ('Notebook.tab', {'sticky': 'nswe', 'children': [
+                ('Notebook.padding', {'side': 'top', 'sticky': 'nswe', 'children': [
+                    ('Notebook.label', {'side': 'top', 'sticky': ''})
+                ]})
+            ]})
+        ])
 
-        # 상태 카드
-        card = self._card()
-        card.pack(fill='x', padx=18, pady=4)
-        self._mode_lbl    = self._stat_row(card, '전원 모드')
-        self._temp_lbl    = self._stat_row(card, 'CPU 온도')
-        self._gpu_lbl     = self._stat_row(card, 'GPU 온도')
-        self._bat_lbl     = self._stat_row(card, '배터리')
-        self._fan_lbl     = self._stat_row(card, '팬(현재)')
-        self._fan_rng_lbl = self._stat_row(card, '팬(범위)')
+        # ── 헤더 바 ───────────────────────────────────────────────────────────
+        hdr = tk.Frame(self, bg=SURFACE, padx=16, pady=8)
+        hdr.pack(fill='x')
+        tk.Label(hdr, text='맥북 팬 · 전원 관리', bg=SURFACE, fg=TEXT,
+                 font=('Helvetica Neue', 15, 'bold')).pack(side='left')
+        tk.Label(hdr, text=f'  v{VERSION}', bg=SURFACE, fg=BORDER,
+                 font=('Helvetica Neue', 11)).pack(side='left')
+        self._update_btn = tk.Button(hdr, text='업데이트 확인', bg=SURFACE, fg=DIM,
+                                     font=('Helvetica Neue', 10), bd=0, relief='flat',
+                                     cursor='hand2', command=self._check_update_manual)
+        self._update_btn.pack(side='right')
 
-        # 전원 모드
-        self._section('전원 모드').pack(fill='x', padx=18, pady=(12, 4))
-        row = tk.Frame(self, bg=BG)
-        row.pack(fill='x', padx=18)
-        self._btn_low = self._mode_btn(row, '🌙 절전', BLUE, 'low')
+        # ── Notebook ──────────────────────────────────────────────────────────
+        nb = ttk.Notebook(self, style='Dark.TNotebook')
+        nb.pack(fill='both', expand=True)
+
+        # ── Tab 1: 대시보드 ───────────────────────────────────────────────────
+        t1 = tk.Frame(nb, bg=BG)
+        nb.add(t1, text='  📊 대시보드  ')
+
+        # 온도 카드 행
+        temp_row = tk.Frame(t1, bg=BG)
+        temp_row.pack(fill='x', padx=16, pady=(16, 8))
+        for i in range(3):
+            temp_row.columnconfigure(i, weight=1, uniform='tc')
+
+        def _temp_card(parent, title, col):
+            card = tk.Frame(parent, bg=SURFACE, padx=14, pady=12)
+            card.grid(row=0, column=col, sticky='nsew', padx=(0 if col == 0 else 6, 0))
+            tk.Label(card, text=title, bg=SURFACE, fg=SUBTEXT,
+                     font=('Helvetica Neue', 10, 'bold')).pack(anchor='w')
+            lbl = tk.Label(card, text='—', bg=SURFACE, fg=TEXT,
+                           font=('Helvetica Neue', 20, 'bold'))
+            lbl.pack(anchor='w', pady=(4, 0))
+            return lbl
+
+        self._temp_lbl = _temp_card(temp_row, 'CPU 온도', 0)
+        self._gpu_lbl  = _temp_card(temp_row, 'GPU 온도', 1)
+        self._bat_lbl  = _temp_card(temp_row, '배터리 온도', 2)
+
+        # 팬 카드 + 전원 모드 카드 행
+        info_row = tk.Frame(t1, bg=BG)
+        info_row.pack(fill='x', padx=16, pady=(0, 8))
+        info_row.columnconfigure(0, weight=1)
+        info_row.columnconfigure(1, weight=1)
+
+        fan_card = tk.Frame(info_row, bg=SURFACE, padx=14, pady=12)
+        fan_card.grid(row=0, column=0, sticky='nsew', padx=(0, 6))
+        tk.Label(fan_card, text='팬 상태', bg=SURFACE, fg=SUBTEXT,
+                 font=('Helvetica Neue', 10, 'bold')).pack(anchor='w', pady=(0, 6))
+        for key, attr in [('현재', '_fan_lbl'), ('범위', '_fan_rng_lbl'), ('모드', '_fan_mode_lbl')]:
+            row = tk.Frame(fan_card, bg=SURFACE)
+            row.pack(fill='x', pady=1)
+            tk.Label(row, text=f'{key}:', bg=SURFACE, fg=DIM,
+                     font=('Helvetica Neue', 11), width=5, anchor='w').pack(side='left')
+            lbl = tk.Label(row, text='—', bg=SURFACE, fg=TEXT,
+                           font=('Helvetica Neue', 11, 'bold'), anchor='w')
+            lbl.pack(side='left', fill='x')
+            setattr(self, attr, lbl)
+
+        mode_card = tk.Frame(info_row, bg=SURFACE, padx=14, pady=12)
+        mode_card.grid(row=0, column=1, sticky='nsew')
+        tk.Label(mode_card, text='전원 모드', bg=SURFACE, fg=SUBTEXT,
+                 font=('Helvetica Neue', 10, 'bold')).pack(anchor='w')
+        self._mode_lbl = tk.Label(mode_card, text='—', bg=SURFACE, fg=TEXT,
+                                   font=('Helvetica Neue', 16, 'bold'))
+        self._mode_lbl.pack(anchor='w', pady=(4, 8))
+        mode_btn_row = tk.Frame(mode_card, bg=SURFACE)
+        mode_btn_row.pack(fill='x')
+        self._btn_low    = self._mode_btn(mode_btn_row, '🌙 절전', BLUE, 'low')
+        self._btn_normal = self._mode_btn(mode_btn_row, '⚡ 기본', GREEN, 'normal')
         self._btn_low.pack(side='left', expand=True, fill='x', padx=(0, 4))
-        self._btn_normal = self._mode_btn(row, '⚡ 기본', GREEN, 'normal')
         self._btn_normal.pack(side='left', expand=True, fill='x')
-        self._hint_lbl = tk.Label(self, bg=BG, fg=DIM,
-                                  font=('Helvetica Neue', 10), wraplength=340)
-        self._hint_lbl.pack(anchor='w', padx=18, pady=(4, 0))
+
+        self._hint_lbl = tk.Label(t1, bg=BG, fg=DIM,
+                                   font=('Helvetica Neue', 10), wraplength=750)
+        self._hint_lbl.pack(anchor='w', padx=16, pady=(0, 6))
+        tk.Label(t1, text='전원 모드 변경 시 시스템 암호가 필요합니다.',
+                 bg=BG, fg=BORDER, font=('Helvetica Neue', 9)).pack(anchor='w', padx=16)
         self._update_mode_ui()
 
-        # 배터리 정보
-        tk.Frame(self, bg=BORDER, height=1).pack(fill='x', padx=18, pady=8)
-        self._section('배터리').pack(anchor='w', padx=18, pady=(0, 4))
-        bat_card = self._card()
-        bat_card.pack(fill='x', padx=18, pady=0)
-        self._bat_cycle_lbl   = self._stat_row(bat_card, '충전 횟수')
-        self._bat_cap_lbl     = self._stat_row(bat_card, '최대 용량')
-        self._bat_remain_lbl  = self._stat_row(bat_card, '잔여 시간')
-        self._bat_status_lbl  = self._stat_row(bat_card, '상태')
+        # ── Tab 2: 팬 제어 ────────────────────────────────────────────────────
+        t2 = tk.Frame(nb, bg=BG)
+        nb.add(t2, text='  🌀 팬 제어  ')
 
-        # 팬 속도 제어
-        tk.Frame(self, bg=BORDER, height=1).pack(fill='x', padx=18, pady=8)
-        fan_hdr = tk.Frame(self, bg=BG)
-        fan_hdr.pack(fill='x', padx=18, pady=(0, 4))
-        self._section('팬 속도 제어', parent=fan_hdr).pack(side='left')
-        self._fan_mode_lbl = tk.Label(fan_hdr, bg=BG, fg=DIM,
-                                      font=('Helvetica Neue', 10))
-        self._fan_mode_lbl.pack(side='right')
+        tk.Label(t2, text='팬 속도 프리셋', bg=BG, fg=SUBTEXT,
+                 font=('Helvetica Neue', 10, 'bold')).pack(anchor='w', padx=16, pady=(16, 6))
 
-        # 프리셋 버튼 (3개)
-        preset_row = tk.Frame(self, bg=BG)
-        preset_row.pack(fill='x', padx=18, pady=(0, 4))
-        for label, rpm, color in [('🔇 저속', 1200, BLUE),
-                                   ('🔁 일반', 2500, GREEN),
-                                   ('🚀 고성능', 4500, RED)]:
-            s = 'normal' if SMC else 'disabled'
-            tk.Button(
+        s_fan = 'normal' if SMC else 'disabled'
+        preset_row = tk.Frame(t2, bg=BG)
+        preset_row.pack(fill='x', padx=16, pady=(0, 8))
+        self._preset_btns = []
+        for label, rpm in [('🔇 저속', 1200), ('🔁 일반', 2500), ('🚀 고성능', 4500)]:
+            b = tk.Button(
                 preset_row, text=f'{label}\n{rpm:,} rpm',
-                bg=SURFACE, fg=TEXT, font=('Helvetica Neue', 11, 'bold'),
-                bd=0, pady=8, cursor='hand2', relief='flat', state=s,
+                bg=SURFACE, fg=TEXT, font=('Helvetica Neue', 12, 'bold'),
+                bd=0, pady=14, cursor='hand2', relief='flat', state=s_fan,
                 command=lambda r=rpm: self._apply_preset(r)
-            ).pack(side='left', expand=True, fill='x', padx=2)
+            )
+            b.pack(side='left', expand=True, fill='x', padx=4)
+            self._preset_btns.append(b)
 
-        # 자동 복구 버튼
         self._btn_fan_auto = tk.Button(
-            self, text='🔄 자동 모드로 복구 (macOS 기본)',
+            t2, text='🔄 자동 모드로 복구 (macOS 기본)',
             bg=SURFACE, fg=SUBTEXT, font=('Helvetica Neue', 11),
-            bd=0, pady=6, cursor='hand2', relief='flat',
-            state='normal' if SMC else 'disabled',
+            bd=0, pady=8, cursor='hand2', relief='flat', state=s_fan,
             command=self._reset_fan_auto
         )
-        self._btn_fan_auto.pack(fill='x', padx=18, pady=(0, 2))
+        self._btn_fan_auto.pack(fill='x', padx=16, pady=(0, 14))
 
-        # 슬라이더 (커스텀 RPM)
-        fan_sl_hdr = tk.Frame(self, bg=BG)
-        fan_sl_hdr.pack(fill='x', padx=18, pady=(6, 2))
-        self._section('커스텀 RPM', parent=fan_sl_hdr).pack(side='left')
-        self._slider_val_lbl = tk.Label(fan_sl_hdr, bg=BG, fg=BLUE,
-                                        font=('Helvetica Neue', 12, 'bold'))
+        tk.Frame(t2, bg=BORDER, height=1).pack(fill='x', padx=16)
+
+        sl_hdr = tk.Frame(t2, bg=BG)
+        sl_hdr.pack(fill='x', padx=16, pady=(12, 4))
+        tk.Label(sl_hdr, text='커스텀 RPM', bg=BG, fg=SUBTEXT,
+                 font=('Helvetica Neue', 10, 'bold')).pack(side='left')
+        self._slider_val_lbl = tk.Label(sl_hdr, bg=BG, fg=BLUE,
+                                         font=('Helvetica Neue', 15, 'bold'))
         self._slider_val_lbl.pack(side='right')
 
-        s = 'normal' if SMC else 'disabled'
         self._slider_var = tk.IntVar(value=2500)
         self._slider = tk.Scale(
-            self, from_=1200, to=6000, resolution=100,
+            t2, from_=1200, to=6000, resolution=100,
             orient='horizontal', variable=self._slider_var,
             bg=BG, fg=TEXT, troughcolor=SURFACE,
             highlightthickness=0, sliderrelief='flat',
-            activebackground=BLUE, showvalue=False, state=s,
+            activebackground=BLUE, showvalue=False, state=s_fan,
             command=lambda v: self._slider_val_lbl.config(text=f'{int(v):,} rpm')
         )
-        self._slider.pack(fill='x', padx=18, pady=2)
+        self._slider.pack(fill='x', padx=16, pady=4)
         self._slider_val_lbl.config(text=f'{self._slider_var.get():,} rpm')
 
         self._fan_apply_btn = tk.Button(
-            self, text='적용',
-            bg=BLUE, fg=BG, font=('Helvetica Neue', 12, 'bold'),
-            bd=0, padx=12, pady=6, cursor='hand2', relief='flat', state=s,
+            t2, text='적용',
+            bg=BLUE, fg=BG, font=('Helvetica Neue', 13, 'bold'),
+            bd=0, padx=12, pady=8, cursor='hand2', relief='flat', state=s_fan,
             command=self._apply_fan_custom
         )
-        self._fan_apply_btn.pack(fill='x', padx=18, pady=(2, 0))
+        self._fan_apply_btn.pack(fill='x', padx=16, pady=(4, 0))
 
         if not SMC:
-            tk.Label(self,
-                     text='⚠  smcFanControl 앱이 설치되어 있어야 팬 제어가 가능합니다.',
-                     bg=BG, fg=DIM, font=('Helvetica Neue', 10), wraplength=340
-                     ).pack(padx=18, pady=(4, 0))
+            tk.Label(t2, text='⚠  smcFanControl 앱이 설치되어 있어야 팬 제어가 가능합니다.',
+                     bg=BG, fg=DIM, font=('Helvetica Neue', 10), wraplength=750
+                     ).pack(padx=16, pady=(8, 0))
 
-        # 하단
-        bottom = tk.Frame(self, bg=BG)
-        bottom.pack(fill='x', padx=18, pady=(14, 10))
-        tk.Label(bottom, text='전원 모드 변경 시 시스템 암호가 필요합니다.',
-                 bg=BG, fg=DIM, font=('Helvetica Neue', 10)).pack(side='left')
-        self._update_btn = tk.Button(
-            bottom, text='업데이트 확인',
-            bg=BG, fg=DIM, font=('Helvetica Neue', 10),
-            bd=0, relief='flat', cursor='hand2',
-            command=self._check_update_manual
-        )
-        self._update_btn.pack(side='right')
+        # ── Tab 3: 배터리 ─────────────────────────────────────────────────────
+        t3 = tk.Frame(nb, bg=BG)
+        nb.add(t3, text='  🔋 배터리  ')
+
+        bat_grid = tk.Frame(t3, bg=BG)
+        bat_grid.pack(fill='x', padx=16, pady=16)
+        for i in range(4):
+            bat_grid.columnconfigure(i, weight=1, uniform='bg')
+
+        def _bat_card(title, col):
+            card = tk.Frame(bat_grid, bg=SURFACE, padx=14, pady=14)
+            card.grid(row=0, column=col, sticky='nsew', padx=(0 if col == 0 else 6, 0))
+            tk.Label(card, text=title, bg=SURFACE, fg=SUBTEXT,
+                     font=('Helvetica Neue', 10, 'bold')).pack(anchor='w')
+            lbl = tk.Label(card, text='—', bg=SURFACE, fg=TEXT,
+                           font=('Helvetica Neue', 18, 'bold'))
+            lbl.pack(anchor='w', pady=(6, 0))
+            return lbl
+
+        self._bat_cycle_lbl  = _bat_card('충전 횟수', 0)
+        self._bat_cap_lbl    = _bat_card('최대 용량', 1)
+        self._bat_remain_lbl = _bat_card('잔여 시간', 2)
+        self._bat_status_lbl = _bat_card('배터리 상태', 3)
 
     # ── 위젯 헬퍼 ────────────────────────────────────────────────────────────
-
-    def _card(self):
-        return tk.Frame(self, bg=SURFACE, bd=0, padx=14, pady=10)
-
-    def _section(self, text, parent=None):
-        p = parent or self
-        return tk.Label(p, text=text, bg=p['bg'] if parent else BG,
-                        fg=SUBTEXT, font=('Helvetica Neue', 10, 'bold'))
-
-    def _stat_row(self, parent, label):
-        row = tk.Frame(parent, bg=SURFACE)
-        row.pack(fill='x', pady=2)
-        tk.Label(row, text=f'{label}:', bg=SURFACE, fg=DIM,
-                 font=('Helvetica Neue', 12), width=8, anchor='w').pack(side='left')
-        lbl = tk.Label(row, text='—', bg=SURFACE, fg=TEXT,
-                       font=('Helvetica Neue', 12, 'bold'), anchor='w')
-        lbl.pack(side='left', fill='x')
-        return lbl
 
     def _mode_btn(self, parent, text, color, mode):
         btn = tk.Button(
             parent, text=text, bg=SURFACE, fg=TEXT,
             font=('Helvetica Neue', 12, 'bold'),
-            bd=0, padx=12, pady=8, cursor='hand2', relief='flat',
+            bd=0, padx=10, pady=7, cursor='hand2', relief='flat',
             command=lambda: self._apply_mode(mode)
         )
         btn.bind('<Enter>', lambda e: btn.config(bg=color, fg=BG))
@@ -568,11 +614,8 @@ class FanApp(tk.Tk):
 
     def _set_fan_busy(self, busy):
         state = 'disabled' if busy else ('normal' if SMC else 'disabled')
-        for w in self.winfo_children():
-            if isinstance(w, tk.Frame):
-                for c in w.winfo_children():
-                    if isinstance(c, tk.Button) and 'rpm' in str(c.cget('text')):
-                        c.config(state=state)
+        for b in self._preset_btns:
+            b.config(state=state)
 
     def _refresh_battery(self):
         cycle, capacity, condition, remain, charging = get_battery_info()
