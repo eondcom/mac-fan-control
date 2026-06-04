@@ -6,7 +6,7 @@ from tkinter import messagebox, ttk
 import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
 import urllib.request, json, webbrowser
 
-VERSION = "1.4.2"
+VERSION = "1.4.3"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
 
@@ -882,25 +882,64 @@ class FanApp(tk.Tk):
             bat_t_short = bat_txt.split()[0] if battery_temp else '—'
             self._mb_bat_mi.setTitle_(f'배터리   {bat_t_short}')
 
+    def _setup_power_source_watcher(self):
+        """IOPSNotificationCreateRunLoopSource: 충전 상태 변경 즉시 감지. 폴링 없음."""
+        try:
+            import ctypes
+            _IOKit = ctypes.cdll.LoadLibrary(
+                '/System/Library/Frameworks/IOKit.framework/IOKit')
+            _CF = ctypes.cdll.LoadLibrary(
+                '/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
+
+            _CF.CFRunLoopGetCurrent.restype = ctypes.c_void_p
+            _CF.CFRunLoopAddSource.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+            _CF.CFRunLoopRun.argtypes = []
+            _IOKit.IOPSNotificationCreateRunLoopSource.restype = ctypes.c_void_p
+
+            kCFRunLoopDefaultMode = ctypes.c_void_p.in_dll(_CF, 'kCFRunLoopDefaultMode')
+
+            CALLBACK = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
+
+            def _on_power_change(info):
+                self.after(0, self._refresh_battery)
+
+            cb = CALLBACK(_on_power_change)
+            self._ps_callback_ref = cb  # GC 방지
+
+            source = _IOKit.IOPSNotificationCreateRunLoopSource(cb, None)
+
+            def run_loop():
+                loop = _CF.CFRunLoopGetCurrent()
+                _CF.CFRunLoopAddSource(loop, ctypes.c_void_p(source), kCFRunLoopDefaultMode)
+                _CF.CFRunLoopRun()
+
+            threading.Thread(target=run_loop, daemon=True).start()
+            return True
+        except Exception as e:
+            print(f'power watcher setup error: {e}')
+            return False
+
     def _schedule_refresh(self):
-        # 온도/팬: 5초마다
+        # 온도/팬: 5초마다 (SMC는 이벤트 API 없어 폴링 불가피)
         def thermal_loop():
             while True:
                 time.sleep(5)
                 self.after(0, self._refresh)
         threading.Thread(target=thermal_loop, daemon=True).start()
 
-        # 배터리 충전 상태: 3초마다 (USB 연결 즉시 반영)
-        def battery_loop():
-            while True:
-                time.sleep(3)
-                self.after(0, self._refresh_battery)
-        threading.Thread(target=battery_loop, daemon=True).start()
+        # 충전 상태: IOKit 이벤트 기반 (USB 꽂는 즉시, 유휴 CPU 0)
+        if not self._setup_power_source_watcher():
+            # IOKit 실패 시 3초 폴링으로 폴백
+            def battery_loop():
+                while True:
+                    time.sleep(3)
+                    self.after(0, self._refresh_battery)
+            threading.Thread(target=battery_loop, daemon=True).start()
 
-        # 배터리 상세 정보: 30초마다 (충전 횟수·용량·상태)
+        # 배터리 상세 정보: 60초마다 (충전 횟수·용량·상태는 자주 안 바뀜)
         def battery_full_loop():
             while True:
-                time.sleep(30)
+                time.sleep(60)
                 self._refresh_battery_full()
         threading.Thread(target=battery_full_loop, daemon=True).start()
 
