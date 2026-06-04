@@ -3,10 +3,10 @@
 
 import tkinter as tk
 from tkinter import messagebox, ttk
-import subprocess, threading, re, time, shutil, os, sys, tempfile, struct
+import subprocess, threading, re, time, shutil, os, sys, tempfile, struct, fcntl
 import urllib.request, json, webbrowser
 
-VERSION = "1.4.4"
+VERSION = "1.4.5"
 GITHUB_API = "https://api.github.com/repos/eondcom/mac-fan-control/releases/latest"
 SETTINGS_PATH = os.path.expanduser('~/.macfancontrol.json')
 
@@ -883,7 +883,7 @@ class FanApp(tk.Tk):
             self._mb_bat_mi.setTitle_(f'배터리   {bat_t_short}')
 
     def _setup_power_source_watcher(self):
-        """IOKit main RunLoop에 전원 이벤트 등록 — 충전기 연결/해제 즉시 감지."""
+        """IOKit 전원 이벤트 → pipe → tkinter 파일핸들러. 콜백 재진입 없이 안전."""
         try:
             import ctypes
             _IOKit = ctypes.cdll.LoadLibrary(
@@ -891,28 +891,45 @@ class FanApp(tk.Tk):
             _CF = ctypes.cdll.LoadLibrary(
                 '/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
 
-            _CF.CFRunLoopGetMain.restype  = ctypes.c_void_p
-            _CF.CFRunLoopAddSource.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+            _CF.CFRunLoopGetMain.restype     = ctypes.c_void_p
+            _CF.CFRunLoopAddSource.argtypes  = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
             _IOKit.IOPSNotificationCreateRunLoopSource.restype = ctypes.c_void_p
 
             kCFRunLoopDefaultMode = ctypes.c_void_p.in_dll(_CF, 'kCFRunLoopDefaultMode')
 
+            # pipe: IOKit 콜백(C컨텍스트)에서는 os.write만, tkinter는 read로 처리
+            r_fd, w_fd = os.pipe()
+            # r_fd를 non-blocking으로 설정
+            fcntl.fcntl(r_fd, fcntl.F_SETFL, os.O_NONBLOCK)
+
             CALLBACK = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
 
             def _on_power_change(info):
-                self.after(0, self._refresh_battery)
+                try:
+                    os.write(w_fd, b'\x01')  # Python/Tcl 호출 없이 바이트만 쓰기
+                except OSError:
+                    pass
 
             cb = CALLBACK(_on_power_change)
             self._ps_callback_ref = cb  # GC 방지
+            self._ps_pipe_fds = (r_fd, w_fd)
 
             source = _IOKit.IOPSNotificationCreateRunLoopSource(cb, None)
             if not source:
                 return False
 
-            # 백그라운드 스레드 RunLoop이 아닌 메인 RunLoop에 등록
-            # tkinter/AppKit이 이미 메인 RunLoop을 돌리고 있으므로 CFRunLoopRun() 불필요
             main_loop = _CF.CFRunLoopGetMain()
             _CF.CFRunLoopAddSource(main_loop, ctypes.c_void_p(source), kCFRunLoopDefaultMode)
+
+            # tkinter 파일핸들러: 메인 스레드에서 안전하게 처리
+            def _on_pipe_readable(fd, mask):
+                try:
+                    os.read(fd, 64)  # 파이프 비우기
+                except OSError:
+                    pass
+                self._refresh_battery()
+
+            self.tk.createfilehandler(r_fd, tk.READABLE, _on_pipe_readable)
             return True
         except Exception as e:
             print(f'power watcher setup error: {e}')
@@ -944,11 +961,13 @@ class FanApp(tk.Tk):
                         break
         threading.Thread(target=battery_poll_loop, daemon=True).start()
 
-        # 배터리 상세 정보: 60초마다 (충전 횟수·용량·상태는 자주 안 바뀜)
+        # 배터리 상세 정보: 60초마다 (데이터 조회 후 self.after로 UI 업데이트)
         def battery_full_loop():
             while True:
                 time.sleep(60)
-                self._refresh_battery_full()
+                cycle, capacity, condition, _, _ = get_battery_info()
+                self.after(0, lambda c=cycle, cap=capacity, cond=condition:
+                           self._apply_battery_full_ui(c, cap, cond))
         threading.Thread(target=battery_full_loop, daemon=True).start()
 
     # ── 전원 모드 액션 ───────────────────────────────────────────────────────
@@ -1042,8 +1061,14 @@ class FanApp(tk.Tk):
                 fg=GREEN if has_time else SUBTEXT)
 
     def _refresh_battery_full(self):
-        """충전 횟수·용량·상태 갱신 (느림, 30초 주기)."""
-        cycle, capacity, condition, _, _ = get_battery_info()
+        """백그라운드에서 데이터 조회 → 메인 스레드에서 위젯 업데이트."""
+        def _fetch():
+            cycle, capacity, condition, _, _ = get_battery_info()
+            self.after(0, lambda: self._apply_battery_full_ui(cycle, capacity, condition))
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _apply_battery_full_ui(self, cycle, capacity, condition):
+        """메인 스레드 전용 — 배터리 상세 위젯 업데이트."""
         self._bat_cycle_lbl.config(
             text=f'{cycle:,} 회' if cycle else 'N/A',
             fg=RED if cycle and cycle > 800 else YELLOW if cycle and cycle > 500 else GREEN if cycle else DIM)
