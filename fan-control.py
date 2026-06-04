@@ -656,7 +656,7 @@ class FanApp(tk.Tk):
             bat_grid.columnconfigure(i, weight=1, uniform='bg')
 
         bat_accents = [YELLOW, GREEN, BLUE, PEACH]
-        bat_labels = ['충전 횟수', '최대 용량', '잔여 시간', '배터리 상태']
+        bat_labels = ['충전 횟수', '배터리 건강도', '잔여 시간', '배터리 상태']
         bat_attrs  = ['_bat_cycle_lbl', '_bat_cap_lbl', '_bat_remain_lbl', '_bat_status_lbl']
         for i, (title, attr, accent) in enumerate(zip(bat_labels, bat_attrs, bat_accents)):
             card = tk.Frame(bat_grid, bg=SURFACE, padx=16, pady=16)
