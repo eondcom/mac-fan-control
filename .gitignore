@@ -1,6 +1,25 @@
-dist/
+# Xcode
 build/
-*.spec
-__pycache__/
-*.pyc
+DerivedData/
+*.xcodeproj/
+!project.yml
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+.swiftpm/
+
+# CocoaPods (unused but standard)
+Pods/
+
+# macOS
 .DS_Store
+
+# Distribution
+dist/
+*.dmg
+*.zip

@@ -8,32 +8,37 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
-      - name: Install PyInstaller
-        run: pip install pyinstaller
+      - name: Generate Xcode project
+        run: xcodegen generate
 
-      - name: Build .app
+      - name: Build (Release, unsigned)
         run: |
-          pyinstaller \
-            --windowed \
-            --onefile \
-            --name "MacFanControl" \
-            fan-control.py
+          xcodebuild \
+            -project MacFanControl.xcodeproj \
+            -scheme MacFanControl \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
 
       - name: Create DMG
         run: |
+          mkdir -p dist
+          cp -R build/Build/Products/Release/MacFanControl.app dist/
           hdiutil create \
             -volname "MacFanControl" \
-            -srcfolder "dist/MacFanControl.app" \
+            -srcfolder dist/MacFanControl.app \
             -ov -format UDZO \
-            "dist/MacFanControl.dmg"
+            dist/MacFanControl.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -65,9 +70,5 @@ jobs:
             2. DMG 열어서 `MacFanControl.app`을 Applications 폴더로 드래그
             3. 처음 실행 시 **우클릭 → 열기** (Gatekeeper 우회)
 
-            > Intel Mac 사용자: Rosetta 2가 설치되어 있으면 그대로 실행됩니다.
-            > (`softwareupdate --install-rosetta` 로 설치 가능)
-
-            ### 팬 속도 조절 요구사항
-            [smcFanControl](https://github.com/hholtmann/smcFanControl) 앱의 `smc` 바이너리가 필요합니다.
-            전원 모드(절전/기본) 전환은 별도 설치 없이 동작합니다.
+            > 이 버전부터 Swift+SwiftUI로 재작성되었습니다.
+            > 외부 `smc` 바이너리(smcFanControl) 의존성이 제거됐습니다.
