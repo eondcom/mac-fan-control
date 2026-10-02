@@ -64,6 +64,19 @@ struct ContentView: View {
         }
         .background(EU.appBg)
         .ignoresSafeArea()
+        .onReceive(NotificationCenter.default.publisher(for: .refreshEverything)) { _ in
+            refreshEverything()
+        }
+    }
+
+    @EnvironmentObject private var displays: DisplayState
+    @EnvironmentObject private var perf: PerfMonitor
+
+    private func refreshEverything() {
+        state.refreshAll()
+        displays.refresh()
+        displays.refreshLinks()
+        perf.refreshNow()
     }
 }
 
@@ -101,6 +114,19 @@ private struct Sidebar: View {
             }
 
             Spacer()
+
+            Button {
+                NotificationCenter.default.post(name: .refreshEverything, object: nil)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("전체 새로고침")
+                    Spacer()
+                    Text("⌘R").foregroundStyle(EU.fg4)
+                }
+            }
+            .buttonStyle(.eu(.light, small: true, fill: true))
+            .padding(.bottom, 6)
 
             // 하단 실시간 요약
             VStack(alignment: .leading, spacing: 6) {

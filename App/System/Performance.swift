@@ -190,6 +190,11 @@ final class PerfMonitor: ObservableObject {
         hogStreak.removeAll()
     }
 
+    /// 모니터링 중이면 기다리지 않고 바로 한 번 잰다.
+    func refreshNow() {
+        if enabled { tick() }
+    }
+
     func clear() {
         events.removeAll()
         current = nil

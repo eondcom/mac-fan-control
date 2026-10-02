@@ -243,3 +243,4 @@
 "화면 크기" = "Interface Size";
 "⌘+ 확대 · ⌘- 축소 · ⌘0 기본" = "⌘+ zoom in · ⌘- zoom out · ⌘0 reset";
 "충전기에 연결돼 있는데 절전 모드가 켜져 있습니다. CPU 속도가 낮아지니 필요 없으면 기본으로 바꾸세요." = "Low Power Mode is on while plugged in. It slows the CPU, so switch to Normal if you don't need it.";
+"전체 새로고침" = "Refresh All";

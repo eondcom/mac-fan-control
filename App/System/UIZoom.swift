@@ -33,11 +33,17 @@ enum UIZoom {
             case 24, 69: zoomIn()   // = · 키패드 +
             case 27, 78: zoomOut()  // - · 키패드 -
             case 29, 82: reset()    // 0 · 키패드 0
+            case 15: NotificationCenter.default.post(name: .refreshEverything, object: nil) // R
             default: return e
             }
             return nil
         }
     }
+}
+
+extension Notification.Name {
+    /// ⌘R · 사이드바 버튼 — 온도·배터리·화면·성능을 한 번에 다시 읽는다.
+    static let refreshEverything = Notification.Name("refreshEverything")
 }
 
 /// 배율이 바뀌면 안쪽 화면을 다시 그린다.
