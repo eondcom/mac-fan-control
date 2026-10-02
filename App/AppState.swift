@@ -94,7 +94,8 @@ final class AppState: ObservableObject {
         timers.append(Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshThermal() }
         })
-        timers.append(Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        // pmset을 띄우므로 1초는 과하다 — 충전 상태는 5초면 충분하다.
+        timers.append(Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refreshBatteryQuick() }
         })
         timers.append(Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
@@ -118,17 +119,18 @@ final class AppState: ObservableObject {
         Task.detached { [weak self] in
             let mode = PowerModeService.current()
             guard let self else { return }
-            await MainActor.run { self.power = mode }
+            await MainActor.run { if self.power != mode { self.power = mode } }
         }
         refreshBatteryFull()
     }
 
     func refreshThermal() {
         Task.detached { [weak self] in
-            let t = Thermal.read()
+            let t = Thermal.read().smoothed
             guard let self else { return }
             await MainActor.run {
-                self.thermal = t
+                // 같은 값을 다시 넣어도 모든 화면이 다시 그려지므로 바뀔 때만 넣는다.
+                if self.thermal != t { self.thermal = t }
                 self.controlStep()
             }
         }
@@ -139,11 +141,13 @@ final class AppState: ObservableObject {
             let q = BatteryService.quickStatus()
             guard let self else { return }
             await MainActor.run {
-                self.battery.isCharging    = q.isCharging
-                self.battery.isCharged     = q.isCharged
-                self.battery.timeRemaining = q.timeRemaining
-                self.battery.adapterWatts  = q.adapterWatts
-                self.battery.batteryWatts  = q.batteryWatts
+                var b = self.battery
+                b.isCharging    = q.isCharging
+                b.isCharged     = q.isCharged
+                b.timeRemaining = q.timeRemaining
+                b.adapterWatts  = q.adapterWatts
+                b.batteryWatts  = q.batteryWatts
+                if b != self.battery { self.battery = b }
             }
         }
     }
@@ -152,7 +156,7 @@ final class AppState: ObservableObject {
         Task.detached { [weak self] in
             let info = BatteryService.full()
             guard let self else { return }
-            await MainActor.run { self.battery = info }
+            await MainActor.run { if self.battery != info { self.battery = info } }
         }
     }
 

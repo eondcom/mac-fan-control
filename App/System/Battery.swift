@@ -2,7 +2,7 @@ import Foundation
 import IOKit
 import IOKit.ps
 
-struct BatteryInfo {
+struct BatteryInfo: Equatable {
     var cycleCount: Int?
     var capacityPercent: Int?
     var condition: String?
@@ -101,7 +101,8 @@ enum BatteryService {
         guard let mv = prop("Voltage"), let raw = prop("Amperage") else { return nil }
         // 방전 전류는 음수지만 부호 없는 64비트로 올 때가 있다.
         let ma = Int64(truncatingIfNeeded: raw)
-        return Double(mv) * Double(ma) / 1_000_000
+        // 0.5W 단위로 — 잔떨림마다 화면을 다시 그리지 않도록
+        return (Double(mv) * Double(ma) / 1_000_000 * 2).rounded() / 2
     }
 
     // MARK: - regex helper

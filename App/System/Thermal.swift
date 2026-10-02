@@ -1,6 +1,6 @@
 import Foundation
 
-struct ThermalReading {
+struct ThermalReading: Equatable {
     var cpuTemp: Double?
     var gpuTemp: Double?
     var batteryTemp: Double?
@@ -8,6 +8,18 @@ struct ThermalReading {
     var fanMin: Int?
     var fanMax: Int?
     var fanManual: Bool
+
+    /// 온도 0.5°C · 팬 50rpm 단위 — 잔떨림마다 화면 전체를 다시 그리지 않도록
+    var smoothed: ThermalReading {
+        func half(_ v: Double?) -> Double? { v.map { ($0 * 2).rounded() / 2 } }
+        func step(_ v: Int?) -> Int? { v.map { Int((Double($0) / 50).rounded()) * 50 } }
+        var r = self
+        r.cpuTemp = half(cpuTemp)
+        r.gpuTemp = half(gpuTemp)
+        r.batteryTemp = half(batteryTemp)
+        r.fanRPM = step(fanRPM)
+        return r
+    }
 }
 
 enum Thermal {
