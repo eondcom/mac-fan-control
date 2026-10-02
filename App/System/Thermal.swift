@@ -44,18 +44,16 @@ enum Thermal {
         return r
     }
 
-    /// 팬 0/1 모두 수동 + 목표 RPM 설정.
+    /// 팬 0/1 모두 수동 + 목표 RPM 설정. root 헬퍼가 없으면 직접 시도한다(root로 실행 중일 때만 성공).
     @discardableResult
     static func setFanSpeed(rpm: Int) -> Bool {
+        if FanHelper.isReady { return FanHelper.setFanSpeed(rpm: rpm) }
         var any = false
         for (modeKey, tgKey) in [(SMCKeys.fan0Mode, SMCKeys.fan0Target),
                                   (SMCKeys.fan1Mode, SMCKeys.fan1Target)] {
-            if SMC.shared.writeUInt8(modeKey, value: 1) {
-                // 우선 FLT 시도, 실패 시 FPE2
-                if SMC.shared.writeFloat(tgKey, value: Float(rpm)) ||
-                   SMC.shared.writeFPE2(tgKey, rpm: Double(rpm)) {
-                    any = true
-                }
+            if SMC.shared.writeUInt8(modeKey, value: 1),
+               SMC.shared.writeRPM(tgKey, rpm: Double(rpm)) {
+                any = true
             }
         }
         return any
@@ -64,6 +62,7 @@ enum Thermal {
     /// 팬 자동 모드 복구.
     @discardableResult
     static func resetFanAuto() -> Bool {
+        if FanHelper.isReady { return FanHelper.resetAuto() }
         let a = SMC.shared.writeUInt8(SMCKeys.fan0Mode, value: 0)
         let b = SMC.shared.writeUInt8(SMCKeys.fan1Mode, value: 0)
         return a || b

@@ -1,25 +1,169 @@
 import SwiftUI
 
-struct ContentView: View {
-    @EnvironmentObject var state: AppState
+enum AppTab: String, CaseIterable, Identifiable {
+    case dashboard, fan, battery, settings
+    var id: String { rawValue }
 
-    var body: some View {
-        TabView {
-            DashboardView()
-                .tabItem { Label("대시보드", systemImage: "gauge") }
-            FanControlView()
-                .tabItem { Label("팬 제어", systemImage: "fan") }
-            BatteryView()
-                .tabItem { Label("배터리", systemImage: "battery.100") }
-            SettingsView()
-                .tabItem { Label("설정", systemImage: "gear") }
+    var title: String {
+        switch self {
+        case .dashboard: return tr("대시보드")
+        case .fan:       return tr("팬 제어")
+        case .battery:   return tr("배터리")
+        case .settings:  return tr("설정")
         }
-        .padding()
-        .frame(minWidth: 720, minHeight: 480)
+    }
+
+    var icon: String {
+        switch self {
+        case .dashboard: return "gauge.with.dots.needle.33percent"
+        case .fan:       return "fan"
+        case .battery:   return "battery.75"
+        case .settings:  return "gearshape"
+        }
     }
 }
 
-// MARK: - 공용 색상 유틸
+struct ContentView: View {
+    @EnvironmentObject var state: AppState
+    @State private var tab: AppTab
+
+    init(initialTab: AppTab = .dashboard) {
+        _tab = State(initialValue: initialTab)
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Sidebar(tab: $tab)
+            Rectangle().fill(EU.line).frame(width: 1)
+
+            ScrollView {
+                Group {
+                    switch tab {
+                    case .dashboard: DashboardView()
+                    case .fan:       FanControlView()
+                    case .battery:   BatteryView()
+                    case .settings:  SettingsView()
+                    }
+                }
+                .padding(.horizontal, 28)
+                .padding(.top, 36)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .background(EU.appBg)
+        }
+        .background(EU.appBg)
+        .ignoresSafeArea()
+    }
+}
+
+// MARK: - 사이드바 (.eu-nav)
+
+private struct Sidebar: View {
+    @EnvironmentObject var state: AppState
+    @Binding var tab: AppTab
+    @Environment(\.eu) private var eu
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // 신호등 버튼 자리
+            Color.clear.frame(height: 40)
+
+            HStack(spacing: 8) {
+                Image(systemName: "fan.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(eu.onPrimary)
+                    .frame(width: 26, height: 26)
+                    .background(eu.primary, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("맥북 팬 관리")
+                        .font(EU.font(13, .bold))
+                    Text("v\(ReleaseChecker.currentVersion())")
+                        .font(EU.font(10.5, .medium))
+                        .foregroundStyle(EU.fg4)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 18)
+
+            ForEach(AppTab.allCases) { t in
+                NavItem(tab: t, selected: tab == t) { tab = t }
+            }
+
+            Spacer()
+
+            // 하단 실시간 요약
+            VStack(alignment: .leading, spacing: 6) {
+                miniStat("CPU", state.thermal.cpuTemp.map { String(format: "%.0f°", $0) } ?? "—",
+                         tone: TempLevel.from(state.thermal.cpuTemp)?.tone)
+                miniStat("팬", state.thermal.fanRPM.map { "\($0.formatted())" } ?? "—", tone: nil)
+            }
+            .padding(12)
+            .background(EU.c1, in: RoundedRectangle(cornerRadius: EU.rRow + 2, style: .continuous))
+
+            if let r = state.latestRelease {
+                Link(destination: r.tagURL) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.circle.fill")
+                        Text(trf("v%@ 업데이트", r.version))
+                    }
+                    .font(EU.font(12, .semibold))
+                    .foregroundStyle(eu.fg)
+                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .background(eu.flat, in: RoundedRectangle(cornerRadius: EU.rRow, style: .continuous))
+                }
+                .padding(.top, 6)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 14)
+        .frame(width: 200)
+        .frame(maxHeight: .infinity)
+        .background(EU.chrome)
+    }
+
+    private func miniStat(_ key: String, _ value: String, tone: EUTone?) -> some View {
+        HStack(spacing: 6) {
+            EUDot(color: tone?.dotColor ?? EU.fg4)
+            Text(tr(key)).foregroundStyle(EU.fg3)
+            Spacer()
+            Text(value).fontWeight(.semibold).monospacedDigit()
+        }
+        .font(EU.font(12))
+    }
+}
+
+private struct NavItem: View {
+    let tab: AppTab
+    let selected: Bool
+    let action: () -> Void
+    @Environment(\.eu) private var eu
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 18)
+                Text(tab.title)
+                    .font(EU.font(13, selected ? .semibold : .medium))
+                Spacer()
+            }
+            .foregroundStyle(selected ? eu.fg : (hovering ? EU.fg : EU.fg2))
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(
+                selected ? eu.row : (hovering ? EU.hover : .clear),
+                in: RoundedRectangle(cornerRadius: EU.rRow, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+// MARK: - 온도·팬 단계 → 뜻 있는 색
 
 enum TempLevel {
     case stable, normal, caution, hot
@@ -32,21 +176,21 @@ enum TempLevel {
         return .hot
     }
 
-    var color: Color {
+    var tone: EUTone {
         switch self {
-        case .stable:  return .green
-        case .normal:  return .yellow
-        case .caution: return .orange
-        case .hot:     return .red
+        case .stable:  return .success
+        case .normal:  return .neutral
+        case .caution: return .warning
+        case .hot:     return .danger
         }
     }
 
     var label: String {
         switch self {
-        case .stable:  return "안정"
-        case .normal:  return "적정"
-        case .caution: return "주의"
-        case .hot:     return "위험"
+        case .stable:  return tr("안정")
+        case .normal:  return tr("적정")
+        case .caution: return tr("주의")
+        case .hot:     return tr("위험")
         }
     }
 }
@@ -61,19 +205,11 @@ enum FanLevel {
         return .high
     }
 
-    var color: Color {
-        switch self {
-        case .low:  return .blue
-        case .mid:  return .green
-        case .high: return .red
-        }
-    }
-
     var label: String {
         switch self {
-        case .low:  return "최소"
-        case .mid:  return "기본"
-        case .high: return "고속"
+        case .low:  return tr("최소")
+        case .mid:  return tr("기본")
+        case .high: return tr("고속")
         }
     }
 }

@@ -186,41 +186,52 @@ final class SMC {
 
     // MARK: write
 
+    /// ui8 키 쓰기 — 먼저 키 정보를 읽어 실제 타입/크기를 확인 후 씀.
     @discardableResult
     func writeUInt8(_ keyString: String, value: UInt8) -> Bool {
-        return write(keyString, dataType: "ui8 ", bytes: [value])
+        guard let ki = fetchKeyInfo(keyString) else { return false }
+        return writeRaw(keyString, dataType: ki.dataType, size: ki.dataSize, bytes: [value])
     }
 
+    /// 팬 RPM 키 쓰기 — 실제 타입(flt / fpe2)을 읽어 자동 변환.
     @discardableResult
-    func writeFloat(_ keyString: String, value: Float) -> Bool {
-        var v = value
-        let bytes = withUnsafeBytes(of: &v) { Array($0) }
-        return write(keyString, dataType: "flt ", bytes: bytes)
+    func writeRPM(_ keyString: String, rpm: Double) -> Bool {
+        guard let ki = fetchKeyInfo(keyString) else { return false }
+        let typeStr = ki.dataType.asFourCharString.trimmingCharacters(in: .whitespaces)
+        let bytes: [UInt8]
+        switch typeStr {
+        case "flt":
+            var v = Float(rpm)
+            bytes = withUnsafeBytes(of: &v) { Array($0.prefix(Int(ki.dataSize))) }
+        case "fpe2":
+            let raw = UInt16(max(0, min(rpm * 4, Double(UInt16.max))))
+            bytes = [UInt8((raw >> 8) & 0xFF), UInt8(raw & 0xFF)]
+        default:
+            return false
+        }
+        return writeRaw(keyString, dataType: ki.dataType, size: ki.dataSize, bytes: bytes)
     }
 
-    @discardableResult
-    func writeFPE2(_ keyString: String, rpm: Double) -> Bool {
-        // rpm × 4, big-endian 16-bit
-        let raw = UInt16(max(0, min(rpm * 4, Double(UInt16.max))))
-        let hi = UInt8((raw >> 8) & 0xFF)
-        let lo = UInt8(raw & 0xFF)
-        return write(keyString, dataType: "fpe2", bytes: [hi, lo])
+    private func fetchKeyInfo(_ keyString: String) -> SMCKeyData_keyInfo_t? {
+        guard open() else { return nil }
+        var info = SMCKeyData_t()
+        info.key = keyString.fourCharCode
+        info.data8 = kSMCGetKeyInfo
+        guard let out = call(input: info), out.result == 0 else { return nil }
+        return out.keyInfo
     }
 
-    private func write(_ keyString: String, dataType: String, bytes: [UInt8]) -> Bool {
+    private func writeRaw(_ keyString: String, dataType: UInt32, size: UInt32, bytes: [UInt8]) -> Bool {
         guard open() else { return false }
         var input = SMCKeyData_t()
         input.key = keyString.fourCharCode
         input.data8 = kSMCWriteKey
-        input.keyInfo.dataSize = UInt32(bytes.count)
-        input.keyInfo.dataType = dataType.fourCharCode
+        input.keyInfo.dataSize = size
+        input.keyInfo.dataType = dataType
 
-        // copy into byte tuple
         var b = input.bytes
         withUnsafeMutableBytes(of: &b) { dst in
-            for (i, v) in bytes.prefix(32).enumerated() {
-                dst[i] = v
-            }
+            for (i, v) in bytes.prefix(Int(size)).enumerated() { dst[i] = v }
         }
         input.bytes = b
 

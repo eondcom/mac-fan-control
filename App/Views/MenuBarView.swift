@@ -3,78 +3,132 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openURL) private var openURL
+    @Environment(\.eu) private var eu
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 10) {
+            // 머리
+            HStack(spacing: 8) {
+                Image(systemName: "fan.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(eu.onPrimary)
+                    .frame(width: 22, height: 22)
+                    .background(eu.primary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 Text("맥북 팬 관리")
-                    .font(.headline)
+                    .font(EU.font(13, .bold))
                 Spacer()
                 Text("v\(ReleaseChecker.currentVersion())")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(EU.font(11, .medium))
+                    .foregroundStyle(EU.fg4)
             }
-            Divider()
 
-            statRow("CPU",   value: state.thermal.cpuTemp.map { tempLabel($0) } ?? "—")
-            statRow("GPU",   value: state.thermal.gpuTemp.map { tempLabel($0) } ?? "—")
-            statRow("배터리", value: state.thermal.batteryTemp.map { tempLabel($0) } ?? "—")
-            statRow("팬",    value: state.thermal.fanRPM.map { "\($0) rpm" } ?? "—")
-            statRow("전원",   value: state.power == .low ? "🌙 절전" : "⚡ 기본")
+            // 온도 3칸
+            HStack(spacing: 6) {
+                tempTile("CPU",    state.thermal.cpuTemp)
+                tempTile("GPU",    state.thermal.gpuTemp)
+                tempTile("배터리", state.thermal.batteryTemp)
+            }
 
-            if let r = state.latestRelease {
-                Divider()
-                Link(destination: r.tagURL) {
-                    Label("v\(r.version) 업데이트 있음", systemImage: "arrow.down.circle.fill")
-                        .font(.callout)
-                        .foregroundStyle(.blue)
+            // 팬 빠른 전환 — 고르면 바로 적용
+            EUSeg(selection: Binding(
+                    get: { state.fanMode == .system ? "auto" : state.fanZone.rawValue },
+                    set: { v in
+                        if let z = FanZone(rawValue: v) { state.selectZone(z) } else { state.useSystemFan() }
+                    }),
+                  options: [("auto", "자동")] + FanZone.allCases.map { ($0.rawValue, $0.label) },
+                  fill: true)
+
+            if let b = state.boostZone, let until = state.boostUntil {
+                HStack(spacing: 6) {
+                    Image(systemName: "thermometer.sun.fill")
+                    (Text(trf("%@ 임시", b.label)) + Text(" · ") + Text(until, style: .relative) + Text(" ") + Text(tr("남음")))
+                        .lineLimit(1)
+                    Spacer()
+                    Button("되돌리기") { state.cancelBoost() }
+                        .buttonStyle(.eu(.light, small: true))
+                }
+                .font(EU.font(12, .semibold))
+                .foregroundStyle(EU.warningFg)
+                .padding(.leading, 10)
+                .padding(.vertical, 2)
+                .background(EU.warningFlat, in: RoundedRectangle(cornerRadius: EU.rRow, style: .continuous))
+            }
+
+            // 팬·전원
+            VStack(spacing: 0) {
+                EUInfoRow(label: "팬") {
+                    Text(state.thermal.fanRPM.map { "\($0.formatted()) rpm" } ?? "—")
+                        .monospacedDigit()
+                }
+                EUDivider()
+                EUInfoRow(label: "팬 제어") {
+                    EUChip(text: state.fanModeLabel,
+                           tone: state.safetyOverride ? .warning : (state.fanMode == .zone ? .primary : .neutral))
+                }
+                EUDivider()
+                EUInfoRow(label: "전원") {
+                    EUChip(text: state.power == .low ? "절전" : "기본",
+                           tone: state.power == .low ? .success : .neutral)
                 }
             }
+            .padding(.horizontal, 12)
+            .background(EU.c1, in: RoundedRectangle(cornerRadius: EU.rRow + 2, style: .continuous))
 
-            Divider()
-
-            Button {
-                openWindow(id: "dashboard")
-                NSApp.activate(ignoringOtherApps: true)
-            } label: {
-                Label("대시보드 열기", systemImage: "macwindow")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if let r = state.latestRelease {
+                Button {
+                    openURL(r.tagURL)
+                } label: {
+                    Label(trf("v%@ 업데이트 있음", r.version), systemImage: "arrow.down.circle.fill")
+                }
+                .buttonStyle(.eu(.flat, small: true, fill: true))
             }
-            .buttonStyle(.borderless)
 
-            Button {
-                state.refreshAll()
-            } label: {
-                Label("새로고침", systemImage: "arrow.clockwise")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.borderless)
+            HStack(spacing: 6) {
+                Button {
+                    openWindow(id: "dashboard")
+                    NSApp.activate(ignoringOtherApps: true)
+                } label: {
+                    Label("대시보드 열기", systemImage: "macwindow")
+                }
+                .buttonStyle(.eu(.solid, small: true, fill: true))
 
-            Button(role: .destructive) {
-                NSApplication.shared.terminate(nil)
-            } label: {
-                Label("종료", systemImage: "power")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button {
+                    state.refreshAll()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.eu(.neutral, small: true))
+                .help("새로고침")
+
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Image(systemName: "power")
+                }
+                .buttonStyle(.eu(.dangerFlat, small: true))
+                .help("종료")
             }
-            .buttonStyle(.borderless)
         }
         .padding(12)
+        .background(EU.appBg)
     }
 
-    @ViewBuilder
-    private func statRow(_ key: String, value: String) -> some View {
-        HStack {
-            Text(key)
-                .foregroundStyle(.secondary)
-                .frame(width: 60, alignment: .leading)
-            Text(value)
-                .fontWeight(.medium)
-            Spacer()
+    private func tempTile(_ key: String, _ temp: Double?) -> some View {
+        let level = TempLevel.from(temp)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                EUDot(color: level?.tone.dotColor ?? EU.fg4)
+                Text(tr(key))
+                    .font(EU.font(11, .medium))
+                    .foregroundStyle(EU.fg3)
+            }
+            Text(temp.map { String(format: "%.0f°", $0) } ?? "—")
+                .font(EU.font(18, .bold))
+                .monospacedDigit()
         }
-        .font(.callout)
-    }
-
-    private func tempLabel(_ t: Double) -> String {
-        String(format: "%.1f°C", t)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(EU.c1, in: RoundedRectangle(cornerRadius: EU.rRow + 2, style: .continuous))
     }
 }

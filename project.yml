@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     macOS: "13.0"
   createIntermediateGroups: true
+  developmentLanguage: ko
 
 settings:
   base:
@@ -29,7 +30,8 @@ targets:
       path: App/Resources/Info.plist
       properties:
         CFBundleName: MacFanControl
-        CFBundleDisplayName: "맥북 팬 관리"
+        CFBundleDisplayName: MacFanControl
+        LSHasLocalizedDisplayName: true
         CFBundleIdentifier: com.eond.macfancontrol
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -37,6 +39,12 @@ targets:
         LSUIElement: true
         NSHumanReadableCopyright: "© 2026 eond.com"
         NSAppleEventsUsageDescription: "전원 모드 변경에 관리자 권한이 필요합니다."
+    dependencies:
+      - sdk: ServiceManagement.framework
+      - target: MacFanSMC
+        embed: true
+        copy:
+          destination: executables
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.eond.macfancontrol
@@ -44,3 +52,18 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: YES
         ENABLE_APP_SANDBOX: NO
+
+  # 팬 쓰기 전용 root 헬퍼 — 앱이 /Library/PrivilegedHelperTools에 setuid로 설치한다.
+  MacFanSMC:
+    type: tool
+    platform: macOS
+    sources:
+      - Helper
+      - App/SMC
+    dependencies:
+      - sdk: IOKit.framework
+    settings:
+      base:
+        PRODUCT_NAME: macfan-smc
+        PRODUCT_BUNDLE_IDENTIFIER: com.eond.macfancontrol.smc
+        SKIP_INSTALL: YES
