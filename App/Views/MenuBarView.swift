@@ -11,9 +11,9 @@ struct MenuBarView: View {
             // 머리
             HStack(spacing: 8) {
                 Image(systemName: "fan.fill")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: EU.z(11), weight: .bold))
                     .foregroundStyle(eu.onPrimary)
-                    .frame(width: 22, height: 22)
+                    .frame(width: EU.z(22), height: EU.z(22))
                     .background(eu.primary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 Text("맥북 팬 관리")
                     .font(EU.font(13, .bold))

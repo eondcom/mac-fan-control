@@ -64,12 +64,17 @@ enum EU {
     static let rCard: CGFloat   = 14
     static let rDialog: CGFloat = 16
 
+    // 화면 배율 — ⌘+ / ⌘- / ⌘0 (UIZoom)
+    static var zoom: CGFloat { UIZoom.current }
+    /// 배율을 곱한 크기 — 글자를 담는 칸·아이콘에 쓴다.
+    static func z(_ v: CGFloat) -> CGFloat { (v * zoom).rounded() }
+
     // 글자 — Pretendard가 없으면 시스템 글꼴로 대체된다.
     static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom("Pretendard Variable", size: size).weight(weight)
+        .custom("Pretendard Variable", size: size * zoom).weight(weight)
     }
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        .system(size: size * zoom, weight: weight, design: .monospaced)
     }
 }
 

@@ -13,10 +13,10 @@ struct BatteryView: View {
             EUCard(padding: 20) {
                 HStack(spacing: 18) {
                     Image(systemName: batterySymbol())
-                        .font(.system(size: 30, weight: .regular))
+                        .font(.system(size: EU.z(30), weight: .regular))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(state.battery.isCharging ? eu.fg : EU.fg2)
-                        .frame(width: 64, height: 64)
+                        .frame(width: EU.z(64), height: EU.z(64))
                         .background(state.battery.isCharging ? eu.flat : EU.c2,
                                     in: RoundedRectangle(cornerRadius: EU.rCard, style: .continuous))
 

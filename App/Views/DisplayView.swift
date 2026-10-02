@@ -101,9 +101,9 @@ struct DisplayView: View {
                 EUListRow {
                     HStack(spacing: 12) {
                         Image(systemName: b.isDisabled ? "laptopcomputer.slash" : "laptopcomputer")
-                            .font(.system(size: 18))
+                            .font(.system(size: EU.z(18)))
                             .foregroundStyle(b.isDisabled ? EU.fg4 : eu.fg)
-                            .frame(width: 28)
+                            .frame(width: EU.z(28))
                         VStack(alignment: .leading, spacing: 2) {
                             Text("내장 화면")
                                 .font(EU.font(13, .semibold))
@@ -251,7 +251,7 @@ struct DisplayView: View {
                 if c.role == .native { EUChip(text: "추천", tone: .success) }
             }
             .padding(.horizontal, 10)
-            .frame(minHeight: 40)
+            .frame(minHeight: EU.z(40))
             .background(selected ? eu.row : .clear,
                         in: RoundedRectangle(cornerRadius: EU.rRow, style: .continuous))
             .contentShape(Rectangle())
@@ -321,7 +321,7 @@ struct DisplayView: View {
                 }
             }
             .padding(.horizontal, 10)
-            .frame(height: 32)
+            .frame(height: EU.z(32))
             .background(selected ? eu.row : .clear,
                         in: RoundedRectangle(cornerRadius: EU.rRow, style: .continuous))
             .contentShape(Rectangle())

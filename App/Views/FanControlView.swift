@@ -110,9 +110,9 @@ struct FanControlView: View {
         EUCard {
             HStack(spacing: 14) {
                 Image(systemName: "lock.shield")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: EU.z(18), weight: .semibold))
                     .foregroundStyle(EU.warningFg)
-                    .frame(width: 40, height: 40)
+                    .frame(width: EU.z(40), height: EU.z(40))
                     .background(EU.warningFlat, in: RoundedRectangle(cornerRadius: EU.rRow + 2, style: .continuous))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(tr(state.helperStatus == .outdated ? "팬 제어 도우미를 다시 설치해야 합니다" : "팬 제어 도우미가 필요합니다"))
@@ -135,7 +135,7 @@ struct FanControlView: View {
 
     private func notice(icon: String, text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: icon).font(.system(size: 12, weight: .semibold))
+            Image(systemName: icon).font(.system(size: EU.z(12), weight: .semibold))
             Text(tr(text)).font(EU.font(12.5, .medium))
             Spacer(minLength: 0)
         }
@@ -164,7 +164,7 @@ private struct ZoneCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: zone.icon)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: EU.z(14), weight: .semibold))
                         .foregroundStyle(selected ? eu.fg : EU.fg3)
                     Text(zone.label)
                         .font(EU.font(15, .bold))
@@ -307,7 +307,7 @@ private struct BoostBanner: View {
             let mins = max(Int(ceil(until.timeIntervalSince(ctx.date) / 60)), 0)
             HStack(spacing: 12) {
                 Image(systemName: "thermometer.sun.fill")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: EU.z(15), weight: .semibold))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(trf("온도가 높아 %@ 구간을 임시로 쓰는 중", zone.label))
                         .font(EU.font(13, .semibold))

@@ -30,6 +30,8 @@ enum AppTab: String, CaseIterable, Identifiable {
 struct ContentView: View {
     @EnvironmentObject var state: AppState
     @State private var tab: AppTab
+    /// 배율이 바뀌면 탭은 그대로 두고 안쪽만 다시 그린다.
+    @AppStorage(UIZoom.key) private var zoom: Double = 1
 
     init(initialTab: AppTab = .dashboard) {
         _tab = State(initialValue: initialTab)
@@ -38,6 +40,7 @@ struct ContentView: View {
     var body: some View {
         HStack(spacing: 0) {
             Sidebar(tab: $tab)
+                .id(zoom)
             Rectangle().fill(EU.line).frame(width: 1)
 
             ScrollView {
@@ -55,6 +58,7 @@ struct ContentView: View {
                 .padding(.top, 36)
                 .padding(.bottom, 28)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+                .id(zoom)
             }
             .background(EU.appBg)
         }
@@ -77,9 +81,9 @@ private struct Sidebar: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "fan.fill")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: EU.z(13), weight: .bold))
                     .foregroundStyle(eu.onPrimary)
-                    .frame(width: 26, height: 26)
+                    .frame(width: EU.z(26), height: EU.z(26))
                     .background(eu.primary, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 VStack(alignment: .leading, spacing: 0) {
                     Text("맥북 팬 관리")
@@ -115,7 +119,7 @@ private struct Sidebar: View {
                     }
                     .font(EU.font(12, .semibold))
                     .foregroundStyle(eu.fg)
-                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .frame(maxWidth: .infinity, minHeight: EU.z(30))
                     .background(eu.flat, in: RoundedRectangle(cornerRadius: EU.rRow, style: .continuous))
                 }
                 .padding(.top, 6)
@@ -123,7 +127,7 @@ private struct Sidebar: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 14)
-        .frame(width: 200)
+        .frame(width: EU.z(200))
         .frame(maxHeight: .infinity)
         .background(EU.chrome)
     }
@@ -150,15 +154,15 @@ private struct NavItem: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: tab.icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 18)
+                    .font(.system(size: EU.z(13), weight: .medium))
+                    .frame(width: EU.z(18))
                 Text(tab.title)
                     .font(EU.font(13, selected ? .semibold : .medium))
                 Spacer()
             }
             .foregroundStyle(selected ? eu.fg : (hovering ? EU.fg : EU.fg2))
             .padding(.horizontal, 10)
-            .frame(height: 34)
+            .frame(height: EU.z(34))
             .background(
                 selected ? eu.row : (hovering ? EU.hover : .clear),
                 in: RoundedRectangle(cornerRadius: EU.rRow, style: .continuous))

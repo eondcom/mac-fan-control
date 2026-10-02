@@ -13,6 +13,30 @@ struct SettingsView: View {
             section("화면") {
                 EUListRow {
                     HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("화면 크기")
+                            Text("⌘+ 확대 · ⌘- 축소 · ⌘0 기본")
+                                .font(EU.font(11.5))
+                                .foregroundStyle(EU.fg3)
+                        }
+                        Spacer()
+                        Button { UIZoom.zoomOut() } label: { Image(systemName: "minus") }
+                            .buttonStyle(.eu(.neutral, small: true))
+                            .disabled(!UIZoom.canZoomOut)
+                        Button { UIZoom.reset() } label: {
+                            Text("\(Int((UIZoom.current * 100).rounded()))%")
+                                .monospacedDigit()
+                                .frame(minWidth: EU.z(40))
+                        }
+                        .buttonStyle(.eu(.light, small: true))
+                        Button { UIZoom.zoomIn() } label: { Image(systemName: "plus") }
+                            .buttonStyle(.eu(.neutral, small: true))
+                            .disabled(!UIZoom.canZoomIn)
+                    }
+                }
+                EUDivider()
+                EUListRow {
+                    HStack {
                         Text("언어")
                         Spacer()
                         EUSeg(selection: $state.language,
@@ -168,7 +192,7 @@ struct SettingsView: View {
                     if let u = URL(string: url) { openURL(u) }
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: icon).font(.system(size: 11, weight: .semibold))
+                        Image(systemName: icon).font(.system(size: EU.z(11), weight: .semibold))
                         Text(value)
                     }
                 }
@@ -185,7 +209,7 @@ struct SettingsView: View {
         } label: {
             Circle()
                 .fill(a.palette.primary)
-                .frame(width: 18, height: 18)
+                .frame(width: EU.z(18), height: EU.z(18))
                 .overlay(Circle().strokeBorder(EU.c4, lineWidth: a == .neutral ? 1 : 0))
                 .padding(3)
                 .overlay(Circle().strokeBorder(on ? EU.fg2 : .clear, lineWidth: 1.5))

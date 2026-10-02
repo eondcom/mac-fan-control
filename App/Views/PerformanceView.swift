@@ -117,17 +117,17 @@ struct PerformanceView: View {
                 .font(EU.font(12.5, .medium))
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(width: 180, alignment: .leading)
+                .frame(width: EU.z(180), alignment: .leading)
             EUBar(value: min(p.cpu, 100) / 100, tone: p.cpu >= PerfMonitor.hogThreshold ? .warning : .neutral)
             Text(String(format: "%.0f%%", p.cpu))
                 .font(EU.font(12.5, .semibold))
                 .monospacedDigit()
-                .frame(width: 48, alignment: .trailing)
+                .frame(width: EU.z(48), alignment: .trailing)
             Text(mb(p.memMB))
                 .font(EU.font(11.5))
                 .foregroundStyle(EU.fg3)
                 .monospacedDigit()
-                .frame(width: 64, alignment: .trailing)
+                .frame(width: EU.z(64), alignment: .trailing)
         }
     }
 
@@ -145,7 +145,7 @@ struct PerformanceView: View {
                             Text("\(i + 1)")
                                 .font(EU.font(12, .bold))
                                 .foregroundStyle(EU.fg4)
-                                .frame(width: 16)
+                                .frame(width: EU.z(16))
                             Text(o.name)
                                 .font(EU.font(12.5, .semibold))
                                 .lineLimit(1)
@@ -157,7 +157,7 @@ struct PerformanceView: View {
                                 .font(EU.font(11.5))
                                 .foregroundStyle(EU.fg3)
                                 .monospacedDigit()
-                                .frame(width: 72, alignment: .trailing)
+                                .frame(width: EU.z(72), alignment: .trailing)
                         }
                     }
                 }

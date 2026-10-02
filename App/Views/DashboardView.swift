@@ -99,7 +99,7 @@ struct DashboardView: View {
                       fill: true)
 
                 HStack(spacing: 5) {
-                    Image(systemName: "lock.fill").font(.system(size: 9))
+                    Image(systemName: "lock.fill").font(.system(size: EU.z(9)))
                     Text("모드를 바꿀 때 시스템 암호를 묻습니다")
                 }
                 .font(EU.font(11.5))

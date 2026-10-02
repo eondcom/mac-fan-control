@@ -27,7 +27,7 @@ struct EUCardHeader<Trailing: View>: View {
         HStack(spacing: 6) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: EU.z(11), weight: .semibold))
                     .foregroundStyle(EU.fg4)
             }
             Text(tr(title))
@@ -88,7 +88,7 @@ private struct EUButtonBody: View {
             .foregroundStyle(foreground)
             .padding(.horizontal, small ? 12 : 16)
             .frame(maxWidth: fill ? .infinity : nil)
-            .frame(minHeight: small ? 28 : 36)
+            .frame(minHeight: EU.z(small ? 28 : 36))
             .background(background, in: RoundedRectangle(cornerRadius: small ? 8 : EU.rBtn, style: .continuous))
             .overlay {
                 if kind == .bordered {
@@ -151,7 +151,7 @@ struct EUChip: View {
     var body: some View {
         HStack(spacing: 4) {
             if let icon {
-                Image(systemName: icon).font(.system(size: 9, weight: .bold))
+                Image(systemName: icon).font(.system(size: EU.z(9), weight: .bold))
             }
             Text(tr(text))
         }
@@ -249,7 +249,7 @@ struct EUSeg<Value: Hashable>: View {
                         .minimumScaleFactor(0.85)
                         .foregroundStyle(on ? EU.fg : EU.fg3)
                         .padding(.horizontal, fill ? 6 : 12)
-                        .frame(maxWidth: fill ? .infinity : nil, minHeight: 28)
+                        .frame(maxWidth: fill ? .infinity : nil, minHeight: EU.z(28))
                         .background {
                             if on {
                                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -336,7 +336,7 @@ struct EUListRow<Content: View>: View {
     var body: some View {
         content
             .padding(.horizontal, 16)
-            .frame(minHeight: 44)
+            .frame(minHeight: EU.z(44))
     }
 }
 

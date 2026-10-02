@@ -10,15 +10,19 @@ struct MacFanControlApp: App {
 
     init() {
         _ = SMC.shared.open()
+        UIZoom.installShortcuts()
     }
 
     var body: some Scene {
         // 메뉴바 패널 — 클릭 시 작은 SwiftUI 윈도우가 떠오름.
         MenuBarExtra {
-            MenuBarView()
-                .environmentObject(state)
-                .frame(width: 300)
-                .euTheme(state.themeMode, accent: state.accent)
+            ZoomReader { z in
+                MenuBarView()
+                    .id(z)
+                    .environmentObject(state)
+                    .frame(width: EU.z(300))
+                    .euTheme(state.themeMode, accent: state.accent)
+            }
         } label: {
             MenuBarLabel()
                 .environmentObject(state)
@@ -27,12 +31,14 @@ struct MacFanControlApp: App {
 
         // 대시보드 — 메뉴바에서 "대시보드 열기"로 호출.
         Window(tr("맥북 팬 관리"), id: "dashboard") {
-            ContentView()
-                .environmentObject(state)
-                .environmentObject(displays)
-                .environmentObject(perf)
-                .frame(minWidth: 820, minHeight: 560)
-                .euTheme(state.themeMode, accent: state.accent)
+            ZoomReader { _ in
+                ContentView()
+                    .environmentObject(state)
+                    .environmentObject(displays)
+                    .environmentObject(perf)
+                    .frame(minWidth: EU.z(820), minHeight: EU.z(560))
+                    .euTheme(state.themeMode, accent: state.accent)
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
