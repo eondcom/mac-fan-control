@@ -10,6 +10,7 @@ struct PerformanceView: View {
                 .padding(.bottom, 4)
 
             switchCard
+            SlowdownAdviceCard()
 
             if perf.enabled, let s = perf.latest {
                 statCards(s)

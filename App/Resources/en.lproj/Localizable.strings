@@ -244,3 +244,33 @@
 "⌘+ 확대 · ⌘- 축소 · ⌘0 기본" = "⌘+ zoom in · ⌘- zoom out · ⌘0 reset";
 "충전기에 연결돼 있는데 절전 모드가 켜져 있습니다. CPU 속도가 낮아지니 필요 없으면 기본으로 바꾸세요." = "Low Power Mode is on while plugged in. It slows the CPU, so switch to Normal if you don't need it.";
 "전체 새로고침" = "Refresh All";
+
+/* 속도 저하 진단 */
+"건강도가 %d%% 아래로 낮아지거나 '점검 권장'이 뜨면, 배터리가 순간 전력을 받쳐 주지 못해 CPU 속도가 깎일 수 있습니다." = "When health drops below %d%% or shows 'Service Recommended', the battery can't back up peak power and the CPU may be slowed.";
+"배터리 교체 — 가장 확실한 해결입니다" = "Replace the battery — the surest fix";
+"교체 전까지는 권장 출력 이상의 충전기를 꽂고 쓰세요" = "Until then, stay plugged into a charger at or above the recommended wattage";
+"충전기 출력" = "Charger Output";
+"지금 %dW로 들어옵니다. 이 맥은 %dW 이상을 권장합니다. 부족하면 무거운 작업에서 속도가 깎이고 배터리가 줄어듭니다." = "Receiving %dW now. This Mac recommends %dW or more. Too little power slows heavy work and drains the battery.";
+"%dW 이상 충전기 사용" = "Use a charger of %dW or more";
+"모니터 USB-C로 충전하면 케이블이 5A(100W)인지 확인 — 3A 케이블은 60W까지만 전달합니다" = "When charging from a monitor's USB-C, use a 5A (100W) cable — 3A cables carry only 60W";
+"충전기가 여러 개면 맥은 가장 센 것 하나만 씁니다" = "With several chargers, the Mac uses only the strongest one";
+"절전 모드는 일부러 CPU 속도를 낮춥니다. 충전 중에는 켤 필요가 없습니다." = "Low Power Mode deliberately slows the CPU. There's no need for it while plugged in.";
+"전원 모드를 '기본'으로" = "Set power mode to Normal";
+"충전 포트 위치" = "Charging Port";
+"이 모델은 왼쪽 포트로 충전하면 전원부가 데워져 팬이 빨라지고 CPU 속도가 깎이는 경우가 많습니다." = "On this model, charging from the left ports often heats the power circuitry, spinning up fans and slowing the CPU.";
+"충전기는 오른쪽 포트에, 모니터·주변기기는 왼쪽에" = "Charger on the right ports; monitor and accessories on the left";
+"CPU 속도 제한" = "CPU Throttling";
+"지금 CPU 속도 %d%% · 최근 24시간 제한 %d번. 하드웨어 보호용이라 강제로 끌 수 없고, 원인을 없애야 풀립니다." = "CPU speed %d%% now · throttled %d times in 24 hours. It protects the hardware and can't be forced off; remove the cause instead.";
+"하드웨어 보호용이라 강제로 끌 수 없고, 원인을 없애야 풀립니다." = "It protects the hardware and can't be forced off; remove the cause instead.";
+"위의 배터리·충전기·포트 항목부터 확인" = "Check the battery, charger and port items first";
+"성능 탭 모니터링을 켜 두고 하루 뒤 기록을 비교" = "Keep monitoring on and compare the log a day later";
+"내부 먼지·써멀" = "Dust & Thermal Paste";
+"오래 쓴 맥은 방열판 먼지와 굳은 써멀 때문에 같은 작업에도 더 뜨거워지고 팬이 시끄러워집니다." = "Older Macs run hotter and louder for the same work due to dusty heatsinks and dried thermal paste.";
+"수리점에서 내부 청소 + 써멀 재도포 (배터리 교체 때 함께 요청)" = "Have a shop clean it and reapply thermal paste (ask during a battery replacement)";
+"거치대로 바닥 공기 흐름 확보" = "Use a stand to let air flow underneath";
+"속도 저하 진단" = "Slowdown Check";
+"문제 없음" = "All Clear";
+"원인 %d개" = "%d causes";
+"지금은 속도를 떨어뜨릴 만한 원인이 보이지 않습니다." = "Nothing that would slow your Mac right now.";
+"해당하는 것만 보기" = "Show only active";
+"모든 원인과 해결 방법 보기" = "Show all causes and fixes";

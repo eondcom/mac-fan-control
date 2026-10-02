@@ -91,6 +91,8 @@ struct BatteryView: View {
                 }
             }
 
+            SlowdownAdviceCard()
+
             Text("충전 횟수 막대는 Apple 기준 1,000회를 100%로 봅니다.")
                 .font(EU.font(11.5))
                 .foregroundStyle(EU.fg4)

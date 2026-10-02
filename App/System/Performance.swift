@@ -96,7 +96,16 @@ enum PerfService {
     static func speedLimit() -> Int? {
         let out = Shell.run("/usr/bin/pmset", ["-g", "therm"])
         guard let r = out.range(of: #"CPU_Speed_Limit\s*=\s*(\d+)"#, options: .regularExpression) else { return nil }
-        return Int(out[r].split(separator: "=").last?.trimmingCharacters(in: .whitespaces) ?? "")
+        let v = Int(out[r].split(separator: "=").last?.trimmingCharacters(in: .whitespaces) ?? "")
+        lastSpeedLimit = v
+        return v
+    }
+
+    /// 마지막으로 읽은 속도 제한 — 화면에서 매번 pmset을 띄우지 않도록
+    private static var lastSpeedLimit: Int?
+    static var speedLimitCached: Int? {
+        if lastSpeedLimit == nil { _ = speedLimit() }
+        return lastSpeedLimit
     }
 
     // MARK: 프로세스
