@@ -39,6 +39,8 @@ struct BatteryView: View {
                 }
             }
 
+            powerCards
+
             // 수치
             HStack(alignment: .top, spacing: 12) {
                 EUCard {
@@ -83,6 +85,55 @@ struct BatteryView: View {
             Text("충전 횟수 막대는 Apple 기준 1,000회를 100%로 봅니다.")
                 .font(EU.font(11.5))
                 .foregroundStyle(EU.fg4)
+        }
+    }
+
+    // 전력 — 어댑터 정격과 배터리에 실제로 드나드는 전력
+
+    private var powerCards: some View {
+        let adapter = state.battery.adapterWatts
+        let flow = state.battery.batteryWatts
+        let charging = (flow ?? 0) > 0.3
+        let draining = (flow ?? 0) < -0.3
+
+        return HStack(alignment: .top, spacing: 12) {
+            EUCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    EUCardHeader(title: "충전기", icon: "powerplug") {
+                        if adapter != nil { EUChip(text: "연결됨", tone: .success) }
+                    }
+                    if let adapter {
+                        EUStatValue(value: "\(adapter)", unit: "W")
+                        Text("충전기·모니터가 줄 수 있는 최대 전력")
+                            .font(EU.font(12))
+                            .foregroundStyle(EU.fg3)
+                    } else {
+                        EUStatValue(value: "—", color: EU.fg4)
+                        Text("연결 안 됨")
+                            .font(EU.font(12))
+                            .foregroundStyle(EU.fg3)
+                    }
+                }
+            }
+            EUCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    EUCardHeader(title: charging ? "배터리로 들어가는 전력" : "배터리 전력", icon: "bolt") {
+                        if charging { EUChip(text: "충전", tone: .primary, icon: "arrow.down") }
+                        else if draining { EUChip(text: "방전", tone: .warning, icon: "arrow.up") }
+                    }
+                    if let flow {
+                        EUStatValue(value: String(format: "%.1f", abs(flow)), unit: "W",
+                                    color: abs(flow) < 0.3 ? EU.fg4 : EU.fg)
+                        Text(charging ? "지금 배터리에 충전되는 전력"
+                             : draining ? "배터리에서 꺼내 쓰는 전력"
+                             : "배터리를 쓰지도 채우지도 않는 중")
+                            .font(EU.font(12))
+                            .foregroundStyle(EU.fg3)
+                    } else {
+                        EUStatValue(value: "N/A", color: EU.fg4)
+                    }
+                }
+            }
         }
     }
 

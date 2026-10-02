@@ -53,7 +53,59 @@ enum DisplayLoad {
     case blurry
 }
 
+/// 화면이 연결된 방식
+enum DisplayLink: Equatable {
+    case builtin
+    /// DisplayPort 신호 — USB-C·썬더볼트·DP 케이블
+    case displayPort
+    /// HDMI(또는 DVI) — 맥이 TV처럼 다뤄 색이 연해질 수 있다
+    case hdmi
+    /// DisplayPort 단자에서 HDMI·DVI로 바꾸는 어댑터를 거침
+    case dpToHDMI
+
+    var label: String {
+        switch self {
+        case .builtin:     return tr("내장")
+        case .displayPort: return tr("USB-C · DisplayPort")
+        case .hdmi:        return tr("HDMI")
+        case .dpToHDMI:    return tr("USB-C → HDMI 변환")
+        }
+    }
+
+    /// 색 범위가 줄어들 수 있는 연결
+    var mayLimitColor: Bool { self == .hdmi || self == .dpToHDMI }
+}
+
 enum DisplayService {
+
+    // MARK: 연결 방식
+
+    /// system_profiler가 1초쯤 걸리므로 백그라운드에서 부른다.
+    static func links() -> [CGDirectDisplayID: DisplayLink] {
+        let out = Shell.run("/usr/sbin/system_profiler", ["SPDisplaysDataType", "-json"])
+        guard let data = out.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let gpus = root["SPDisplaysDataType"] as? [[String: Any]] else { return [:] }
+        var map: [CGDirectDisplayID: DisplayLink] = [:]
+        for gpu in gpus {
+            for d in gpu["spdisplays_ndrvs"] as? [[String: Any]] ?? [] {
+                guard let hex = d["_spdisplays_displayID"] as? String,
+                      let id = UInt32(hex, radix: 16) else { continue }
+                let conn = (d["spdisplays_connection_type"] as? String ?? "").lowercased()
+                let adapter = (d["spdisplays_adapter_type"] as? String ?? "").lowercased()
+                if conn.contains("internal") {
+                    map[id] = .builtin
+                } else if adapter.contains("hdmi") || adapter.contains("dvi") {
+                    map[id] = .dpToHDMI
+                } else if conn.contains("hdmi") || conn.contains("dvi") {
+                    map[id] = .hdmi
+                } else if adapter.contains("displayport") || adapter.contains("thunderbolt") || conn.contains("displayport") {
+                    map[id] = .displayPort
+                }
+            }
+        }
+        return map
+    }
 
     // MARK: 목록
 
@@ -68,7 +120,8 @@ enum DisplayService {
             // 미러링 중인 보조 화면은 따로 보여주지 않는다.
             if CGDisplayIsInMirrorSet(id) != 0, CGDisplayMirrorsDisplay(id) != kCGNullDirectDisplay { continue }
             let modes = availableModes(id)
-            let native = modes.filter { $0.pixelWidth == $0.width }.map(\.pixelWidth).max()
+            let native = nativeWidth(id)
+                ?? modes.filter { $0.pixelWidth == $0.width }.map(\.pixelWidth).max()
                 ?? Int(CGDisplayPixelsWide(id))
             result.append(DisplayInfo(
                 id: id,
@@ -94,6 +147,14 @@ enum DisplayService {
             return screen.localizedName
         }
         return CGDisplayIsBuiltin(id) != 0 ? tr("내장 디스플레이") : tr("외장 모니터")
+    }
+
+    /// 패널 원래 픽셀 폭 — 드라이버가 "기본"으로 표시한 모드 기준
+    private static func nativeWidth(_ id: CGDirectDisplayID) -> Int? {
+        let opts = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+        guard let all = CGDisplayCopyAllDisplayModes(id, opts) as? [CGDisplayMode] else { return nil }
+        let nativeFlag: UInt32 = 0x0200_0000 // kDisplayModeNativeFlag
+        return all.filter { $0.ioFlags & nativeFlag != 0 }.map(\.pixelWidth).max()
     }
 
     /// 데스크톱에 쓸 수 있는 해상도 — 보이는 크기마다 하나, 지금 주사율 우선
@@ -197,6 +258,7 @@ final class DisplayState: ObservableObject {
     @Published private(set) var displays: [DisplayInfo] = []
     @Published private(set) var windowServerCPU: Double?
     @Published private(set) var lastError: String?
+    @Published private(set) var links: [CGDirectDisplayID: DisplayLink] = [:]
 
     /// 외장 모니터가 연결되면 내장 화면을 자동으로 끈다.
     @Published var autoBuiltinOff: Bool = UserDefaults.standard.bool(forKey: "display_auto_builtin_off") {
@@ -212,6 +274,7 @@ final class DisplayState: ObservableObject {
 
     init() {
         refresh()
+        refreshLinks()
         externalCount = activeExternalCount
         applyAutoOff()
 
@@ -250,6 +313,13 @@ final class DisplayState: ObservableObject {
         profiles = map
     }
 
+    func refreshLinks() {
+        Task.detached { [weak self] in
+            let map = DisplayService.links()
+            await MainActor.run { self?.links = map }
+        }
+    }
+
     func applyProfile(_ p: ColorProfileInfo, to display: DisplayInfo) {
         lastError = ColorProfileService.apply(p.url, to: display.id) ? nil : tr("색상 프로필을 바꾸지 못했습니다")
         refreshAfterChange()
@@ -267,6 +337,7 @@ final class DisplayState: ObservableObject {
 
     private func afterReconfigure() {
         refresh()
+        refreshLinks()
         let count = activeExternalCount
 
         // 안전장치: 켜진 화면이 하나도 없으면 내장 화면을 되살린다.

@@ -223,3 +223,20 @@
 "모니터를 Adobe RGB 모드로 둘 때 · 인쇄용 사진" = "When the monitor is in Adobe RGB mode · print photos";
 "지금 적용된 프로필" = "Currently applied";
 "색상 프로필을 바꾸지 못했습니다" = "Couldn't change the color profile";
+
+/* 전력 */
+"충전기" = "Charger";
+"연결됨" = "Connected";
+"충전기·모니터가 줄 수 있는 최대 전력" = "Max power the charger or monitor can supply";
+"연결 안 됨" = "Not connected";
+"배터리로 들어가는 전력" = "Power into Battery";
+"배터리 전력" = "Battery Power";
+"방전" = "Discharging";
+"지금 배터리에 충전되는 전력" = "Power currently charging the battery";
+"배터리에서 꺼내 쓰는 전력" = "Power drawn from the battery";
+"배터리를 쓰지도 채우지도 않는 중" = "Battery is neither charging nor discharging";
+"내장" = "Built-in";
+"USB-C · DisplayPort" = "USB-C · DisplayPort";
+"HDMI" = "HDMI";
+"USB-C → HDMI 변환" = "USB-C → HDMI adapter";
+"HDMI로 연결하면 맥이 TV처럼 색 범위를 줄여 보내 색이 연해질 수 있습니다. USB-C·DisplayPort 연결을 권장합니다." = "Over HDMI, the Mac may treat the monitor like a TV and send a reduced color range, making colors look faded. USB-C or DisplayPort is recommended.";

@@ -1,4 +1,6 @@
 import Foundation
+import IOKit
+import IOKit.ps
 
 struct BatteryInfo {
     var cycleCount: Int?
@@ -7,6 +9,10 @@ struct BatteryInfo {
     var timeRemaining: String?
     var isCharging: Bool
     var isCharged: Bool
+    /// 연결된 어댑터(또는 USB-C 모니터)의 정격 전력
+    var adapterWatts: Int?
+    /// 배터리에 드나드는 전력 — 양수면 충전, 음수면 방전
+    var batteryWatts: Double?
 }
 
 enum BatteryService {
@@ -38,6 +44,8 @@ enum BatteryService {
         info.isCharging     = st.isCharging
         info.isCharged      = st.isCharged
         info.timeRemaining  = st.timeRemaining
+        info.adapterWatts   = st.adapterWatts
+        info.batteryWatts   = st.batteryWatts
         return info
     }
 
@@ -45,6 +53,8 @@ enum BatteryService {
         var isCharging: Bool
         var isCharged: Bool
         var timeRemaining: String?
+        var adapterWatts: Int?
+        var batteryWatts: Double?
         var raw: String
     }
 
@@ -67,7 +77,31 @@ enum BatteryService {
         return QuickStatus(isCharging: charging,
                            isCharged: charged,
                            timeRemaining: remain,
+                           adapterWatts: onAC ? adapterWatts() : nil,
+                           batteryWatts: batteryWatts(),
                            raw: out)
+    }
+
+    // MARK: - 전력
+
+    static func adapterWatts() -> Int? {
+        guard let d = IOPSCopyExternalPowerAdapterDetails()?.takeRetainedValue() as? [String: Any] else { return nil }
+        return (d[kIOPSPowerAdapterWattsKey] as? Int).flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    /// 배터리 전압 × 전류 (W)
+    static func batteryWatts() -> Double? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        func prop(_ key: String) -> Int? {
+            IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? Int
+        }
+        guard let mv = prop("Voltage"), let raw = prop("Amperage") else { return nil }
+        // 방전 전류는 음수지만 부호 없는 64비트로 올 때가 있다.
+        let ma = Int64(truncatingIfNeeded: raw)
+        return Double(mv) * Double(ma) / 1_000_000
     }
 
     // MARK: - regex helper

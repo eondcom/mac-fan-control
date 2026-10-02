@@ -11,6 +11,7 @@ struct DisplayView: View {
             EUPageHeader(title: "모니터", subtitle: "연결된 화면과 해상도, 그래픽 부하를 관리합니다") {
                 Button {
                     displays.refresh()
+                    displays.refreshLinks()
                 } label: {
                     Label(tr("새로고침"), systemImage: "arrow.clockwise")
                 }
@@ -146,13 +147,24 @@ struct DisplayView: View {
         EUCard {
             VStack(alignment: .leading, spacing: 12) {
                 EUCardHeader(title: d.name, icon: d.isBuiltin ? "laptopcomputer" : "display") {
+                    if let link = displays.links[d.id], link != .builtin {
+                        EUChip(text: link.label, tone: link.mayLimitColor ? .warning : .success, icon: "cable.connector")
+                    }
                     if d.isMain { EUChip(text: "주 화면", tone: .primary) }
                     if let c = d.current {
-                        EUChip(text: "\(c.pixelWidth)×\(c.pixelHeight) · \(Int(c.refresh.rounded()))Hz")
+                        EUChip(text: c.refresh > 0
+                               ? "\(c.pixelWidth)×\(c.pixelHeight) · \(Int(c.refresh.rounded()))Hz"
+                               : "\(c.pixelWidth)×\(c.pixelHeight)")
                     }
                 }
                 let showAll = expanded.contains(d.id)
                 let hidden = d.modes.filter { isLowRes($0, in: d) }
+                if displays.links[d.id]?.mayLimitColor == true {
+                    Text("HDMI로 연결하면 맥이 TV처럼 색 범위를 줄여 보내 색이 연해질 수 있습니다. USB-C·DisplayPort 연결을 권장합니다.")
+                        .font(EU.font(11.5))
+                        .foregroundStyle(EU.warningFg)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 VStack(spacing: 4) {
                     ForEach(d.modes.filter { showAll || !isLowRes($0, in: d) }) { m in
                         modeRow(m, display: d)

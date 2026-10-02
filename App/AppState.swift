@@ -142,6 +142,8 @@ final class AppState: ObservableObject {
                 self.battery.isCharging    = q.isCharging
                 self.battery.isCharged     = q.isCharged
                 self.battery.timeRemaining = q.timeRemaining
+                self.battery.adapterWatts  = q.adapterWatts
+                self.battery.batteryWatts  = q.batteryWatts
             }
         }
     }
