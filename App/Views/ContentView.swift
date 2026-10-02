@@ -112,6 +112,8 @@ private struct Sidebar: View {
             ForEach(AppTab.allCases) { t in
                 NavItem(tab: t, selected: tab == t) { tab = t }
             }
+            DonateNavItem()
+                .padding(.top, 2)
 
             Spacer()
 
@@ -246,6 +248,47 @@ enum FanLevel {
         case .low:  return tr("최소")
         case .mid:  return tr("기본")
         case .high: return tr("고속")
+        }
+    }
+}
+
+/// 사이드바 맨 아래 메뉴 밑의 작은 후원 줄 — 탭이 아니라 후원 창을 띄운다.
+private struct DonateNavItem: View {
+    @Environment(\.openURL) private var openURL
+    @State private var show = false
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            if L10n.resolved == "ko" { show.toggle() } else { openURL(SettingsView.payPalURL) }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "heart")
+                    .font(.system(size: EU.z(11), weight: .medium))
+                    .frame(width: EU.z(18))
+                Text("후원하기")
+                    .font(EU.font(12))
+                Spacer()
+            }
+            .foregroundStyle(hovering ? EU.fg2 : EU.fg4)
+            .padding(.horizontal, 10)
+            .frame(height: EU.z(28))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .popover(isPresented: $show, arrowEdge: .trailing) {
+            VStack(spacing: 0) {
+                KakaoPayQR(url: SettingsView.kakaoPayURL)
+                EUDivider()
+                Button {
+                    openURL(SettingsView.payPalURL)
+                } label: {
+                    Label(tr("PayPal로 후원"), systemImage: "heart.fill")
+                }
+                .buttonStyle(.eu(.light, small: true))
+                .padding(10)
+            }
         }
     }
 }
