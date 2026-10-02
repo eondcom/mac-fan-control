@@ -8,12 +8,7 @@ enum PowerMode: String {
 enum PowerModeService {
 
     static func current() -> PowerMode {
-        let out = Shell.run("/usr/bin/pmset", ["-g"])
-        if let range = out.range(of: #"lowpowermode\s+(\d)"#, options: .regularExpression) {
-            let match = String(out[range])
-            if match.contains("1") { return .low }
-        }
-        return .normal
+        ProcessInfo.processInfo.isLowPowerModeEnabled ? .low : .normal
     }
 
     /// 관리자 권한 요청 (osascript) 후 pmset 적용.

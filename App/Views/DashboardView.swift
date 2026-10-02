@@ -23,7 +23,7 @@ struct DashboardView: View {
 
             HStack(alignment: .top, spacing: 12) {
                 fanCard()
-                powerCard()
+                PowerModeCard()
             }
         }
     }
@@ -81,10 +81,14 @@ struct DashboardView: View {
             }
         }
     }
+}
 
-    // MARK: - power card
+// MARK: - 전원 모드 카드 — 대시보드·배터리 탭 공용
 
-    private func powerCard() -> some View {
+struct PowerModeCard: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
         EUCard {
             VStack(alignment: .leading, spacing: 12) {
                 EUCardHeader(title: "전원 모드", icon: "bolt") {

@@ -85,6 +85,14 @@ final class AppState: ObservableObject {
             Thermal.resetFanAuto()
         }
 
+        // 시스템 설정·제어 센터에서 절전 모드를 바꿔도 바로 반영한다.
+        NotificationCenter.default.addObserver(
+            forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            let mode = PowerModeService.current()
+            Task { @MainActor in if self?.power != mode { self?.power = mode } }
+        }
+
         if fanMode == .zone { scheduleApply() }
     }
 

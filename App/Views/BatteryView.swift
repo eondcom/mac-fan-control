@@ -33,6 +33,9 @@ struct BatteryView: View {
                         }
                     }
                     Spacer()
+                    if state.power == .low {
+                        EUChip(text: "절전 모드", tone: .warning, icon: "leaf.fill")
+                    }
                     if let c = state.battery.condition {
                         EUChip(text: conditionText(c), tone: conditionTone(c), icon: "heart.fill")
                     }
@@ -40,6 +43,12 @@ struct BatteryView: View {
             }
 
             powerCards
+            if state.power == .low && state.battery.adapterWatts != nil {
+                Text("충전기에 연결돼 있는데 절전 모드가 켜져 있습니다. CPU 속도가 낮아지니 필요 없으면 기본으로 바꾸세요.")
+                    .font(EU.font(11.5))
+                    .foregroundStyle(EU.warningFg)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             // 수치
             HStack(alignment: .top, spacing: 12) {
@@ -134,6 +143,7 @@ struct BatteryView: View {
                     }
                 }
             }
+            PowerModeCard()
         }
     }
 

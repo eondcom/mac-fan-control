@@ -242,3 +242,4 @@
 "HDMI로 연결하면 맥이 TV처럼 색 범위를 줄여 보내 색이 연해질 수 있습니다. USB-C·DisplayPort 연결을 권장합니다." = "Over HDMI, the Mac may treat the monitor like a TV and send a reduced color range, making colors look faded. USB-C or DisplayPort is recommended.";
 "화면 크기" = "Interface Size";
 "⌘+ 확대 · ⌘- 축소 · ⌘0 기본" = "⌘+ zoom in · ⌘- zoom out · ⌘0 reset";
+"충전기에 연결돼 있는데 절전 모드가 켜져 있습니다. CPU 속도가 낮아지니 필요 없으면 기본으로 바꾸세요." = "Low Power Mode is on while plugged in. It slows the CPU, so switch to Normal if you don't need it.";
