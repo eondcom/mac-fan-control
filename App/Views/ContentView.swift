@@ -112,8 +112,6 @@ private struct Sidebar: View {
             ForEach(AppTab.allCases) { t in
                 NavItem(tab: t, selected: tab == t) { tab = t }
             }
-            DonateNavItem()
-                .padding(.top, 2)
 
             Spacer()
 
@@ -128,7 +126,9 @@ private struct Sidebar: View {
                 }
             }
             .buttonStyle(.eu(.light, small: true, fill: true))
-            .padding(.bottom, 6)
+
+            DonateNavItem()
+                .padding(.bottom, 6)
 
             // 하단 실시간 요약
             VStack(alignment: .leading, spacing: 6) {
@@ -252,7 +252,7 @@ enum FanLevel {
     }
 }
 
-/// 사이드바 맨 아래 메뉴 밑의 작은 후원 줄 — 탭이 아니라 후원 창을 띄운다.
+/// 사이드바 아래쪽 전체 새로고침 밑의 작은 후원 줄 — 탭이 아니라 후원 창을 띄운다.
 private struct DonateNavItem: View {
     @Environment(\.openURL) private var openURL
     @State private var show = false
@@ -260,7 +260,7 @@ private struct DonateNavItem: View {
 
     var body: some View {
         Button {
-            if L10n.resolved == "ko" { show.toggle() } else { openURL(SettingsView.payPalURL) }
+            show.toggle()
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "heart")

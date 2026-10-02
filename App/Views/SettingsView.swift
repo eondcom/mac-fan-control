@@ -177,17 +177,15 @@ struct SettingsView: View {
                                 .foregroundStyle(EU.fg3)
                         }
                         Spacer()
-                        // 카카오페이는 한국 사용자에게만 — PC에서 열면 휴대폰으로 찍는 QR이 뜬다.
-                        if L10n.resolved == "ko" {
-                            Button {
-                                showKakaoQR.toggle()
-                            } label: {
-                                Label(tr("카카오페이"), systemImage: "qrcode")
-                            }
-                            .buttonStyle(.eu(.flat, small: true))
-                            .popover(isPresented: $showKakaoQR, arrowEdge: .bottom) {
-                                KakaoPayQR(url: Self.kakaoPayURL)
-                            }
+                        // 카카오페이 — PC에서는 휴대폰으로 찍도록 QR을 띄운다. 영어 화면을 쓰는 한국 사용자도 있어 항상 보인다.
+                        Button {
+                            showKakaoQR.toggle()
+                        } label: {
+                            Label(tr("카카오페이"), systemImage: "qrcode")
+                        }
+                        .buttonStyle(.eu(.flat, small: true))
+                        .popover(isPresented: $showKakaoQR, arrowEdge: .bottom) {
+                            KakaoPayQR(url: Self.kakaoPayURL)
                         }
                         Button {
                             openURL(Self.payPalURL)

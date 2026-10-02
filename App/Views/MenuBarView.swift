@@ -102,9 +102,9 @@ struct MenuBarView: View {
                 .buttonStyle(.eu(.neutral, small: true))
                 .help("새로고침")
 
-                // 후원 — 한국어면 카카오페이 QR도 함께, 영어면 PayPal로 바로
+                // 후원 — 카카오페이 QR과 PayPal (영어 화면을 쓰는 한국 사용자도 있으므로 언어와 무관)
                 Button {
-                    if L10n.resolved == "ko" { showDonate.toggle() } else { openURL(SettingsView.payPalURL) }
+                    showDonate.toggle()
                 } label: {
                     Image(systemName: "heart")
                 }
