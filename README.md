@@ -25,6 +25,24 @@ Intel MacBook용 팬 소음·전원 관리 SwiftUI 앱. macOS 13(Ventura)+ 지�
 | **속도 저하 진단** | 배터리 건강도·충전기 출력·절전 모드·속도 제한별 원인과 해결 방법 안내 |
 | **화면 배율** | ⌘+ / ⌘- / ⌘0, 전체 새로고침 ⌘R |
 
+## 스크린샷
+
+| 대시보드 | 메뉴바 |
+|---|---|
+| ![대시보드](docs/screenshots/dashboard.png) | ![메뉴바](docs/screenshots/menubar.png) |
+
+| 팬 제어 | 배터리 |
+|---|---|
+| ![팬 제어](docs/screenshots/fan-control.png) | ![배터리](docs/screenshots/battery.png) |
+
+| 모니터 | 성능 |
+|---|---|
+| ![모니터](docs/screenshots/monitor.png) | ![성능](docs/screenshots/performance.png) |
+
+| 설정 | |
+|---|---|
+| ![설정](docs/screenshots/settings.png) | |
+
 ## 설치 (배포판)
 
 [Releases](../../releases) 페이지에서 DMG 다운로드 후 설치.
