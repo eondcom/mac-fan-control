@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var launchAtLogin: Bool = (SMAppService.mainApp.status == .enabled)
     @State private var showKakaoQR = false
     static let kakaoPayURL = URL(string: "https://qr.kakaopay.com/Ej7jeAAOU")!
+    static let payPalURL = URL(string: "https://paypal.me/eond")!
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -189,7 +190,7 @@ struct SettingsView: View {
                             }
                         }
                         Button {
-                            if let u = URL(string: "https://paypal.me/eond") { openURL(u) }
+                            openURL(Self.payPalURL)
                         } label: {
                             Label(tr("PayPal로 후원"), systemImage: "heart.fill")
                         }
@@ -257,7 +258,7 @@ struct SettingsView: View {
 
 // MARK: - 카카오페이 송금 QR — PC에서는 휴대폰으로 찍어야 하므로 앱에서 바로 보여준다.
 
-private struct KakaoPayQR: View {
+struct KakaoPayQR: View {
     let url: URL
     @State private var copied = false
 

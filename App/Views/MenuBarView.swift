@@ -3,6 +3,7 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.openWindow) private var openWindow
+    @State private var showDonate = false
     @Environment(\.openURL) private var openURL
     @Environment(\.eu) private var eu
 
@@ -100,6 +101,28 @@ struct MenuBarView: View {
                 }
                 .buttonStyle(.eu(.neutral, small: true))
                 .help("새로고침")
+
+                // 후원 — 한국어면 카카오페이 QR도 함께, 영어면 PayPal로 바로
+                Button {
+                    if L10n.resolved == "ko" { showDonate.toggle() } else { openURL(SettingsView.payPalURL) }
+                } label: {
+                    Image(systemName: "heart")
+                }
+                .buttonStyle(.eu(.neutral, small: true))
+                .help(tr("후원"))
+                .popover(isPresented: $showDonate, arrowEdge: .bottom) {
+                    VStack(spacing: 0) {
+                        KakaoPayQR(url: SettingsView.kakaoPayURL)
+                        EUDivider()
+                        Button {
+                            openURL(SettingsView.payPalURL)
+                        } label: {
+                            Label(tr("PayPal로 후원"), systemImage: "heart.fill")
+                        }
+                        .buttonStyle(.eu(.light, small: true))
+                        .padding(10)
+                    }
+                }
 
                 Button {
                     NSApplication.shared.terminate(nil)
