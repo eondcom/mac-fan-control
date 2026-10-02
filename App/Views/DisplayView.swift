@@ -26,6 +26,7 @@ struct DisplayView: View {
 
             ForEach(displays.displays.filter { !$0.isDisabled }) { d in
                 resolutionCard(d)
+                colorCard(d)
             }
 
             if let err = displays.lastError {
@@ -167,6 +168,115 @@ struct DisplayView: View {
                     .buttonStyle(.eu(.light, small: true))
                 }
             }
+        }
+    }
+
+    // MARK: 색상 프로필
+
+    @ViewBuilder
+    private func colorCard(_ d: DisplayInfo) -> some View {
+        if let entry = displays.profiles[d.id], !entry.candidates.isEmpty {
+            let native = entry.candidates.first { $0.role == .native }?.profile
+            let current = entry.current
+            let fit = current.map { ColorProfileService.fit($0, native: native) } ?? .unknown
+
+            EUCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    EUCardHeader(title: trf("색상 프로필 · %@", d.name), icon: "paintpalette") {
+                        fitChip(fit)
+                    }
+                    if let current {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(trf("지금: %@", current.name))
+                                .font(EU.font(13, .semibold))
+                                .lineLimit(1)
+                            Text(tr(fitText(fit)))
+                                .font(EU.font(12))
+                                .foregroundStyle(fit == .good ? EU.fg3 : EU.warningFg)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    VStack(spacing: 4) {
+                        ForEach(entry.candidates) { c in
+                            profileRow(c, display: d, current: current)
+                        }
+                    }
+                    Text("모니터 자체 메뉴(OSD)의 색 모드와 맞추세요. 표준·기본 모드면 추천 프로필, sRGB 모드면 sRGB, DCI-P3 모드면 Display P3, Adobe RGB 모드면 Adobe RGB를 고릅니다.")
+                        .font(EU.font(11.5))
+                        .foregroundStyle(EU.fg4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func profileRow(_ c: ProfileCandidate, display d: DisplayInfo, current: ColorProfileInfo?) -> some View {
+        let selected = current?.url.standardizedFileURL == c.profile.url.standardizedFileURL
+        let gamut = c.profile.gamutArea.map { Int(($0 / ColorProfileService.sRGBArea * 100).rounded()) }
+
+        return Button {
+            if !selected { displays.applyProfile(c.profile, to: d) }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected ? eu.primary : EU.fg4)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(c.profile.name)
+                        .font(EU.font(13, selected ? .semibold : .medium))
+                        .lineLimit(1)
+                    Text(tr(roleText(c.role)))
+                        .font(EU.font(11.5))
+                        .foregroundStyle(EU.fg3)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if let gamut {
+                    Text(trf("색 영역 sRGB의 %d%%", gamut))
+                        .font(EU.font(11.5))
+                        .foregroundStyle(EU.fg3)
+                        .monospacedDigit()
+                }
+                if c.role == .native { EUChip(text: "추천", tone: .success) }
+            }
+            .padding(.horizontal, 10)
+            .frame(minHeight: 40)
+            .background(selected ? eu.row : .clear,
+                        in: RoundedRectangle(cornerRadius: EU.rRow, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func fitChip(_ fit: ProfileFit) -> some View {
+        switch fit {
+        case .good:       EUChip(text: "패널과 맞음", tone: .success, icon: "checkmark")
+        case .tooNarrow:  EUChip(text: "과하게 진함", tone: .warning)
+        case .tooWide:    EUChip(text: "색이 바램", tone: .warning)
+        case .linear:     EUChip(text: "밋밋함", tone: .danger)
+        case .notDisplay: EUChip(text: "모니터용 아님", tone: .danger)
+        case .unknown:    EmptyView()
+        }
+    }
+
+    private func fitText(_ fit: ProfileFit) -> String {
+        switch fit {
+        case .good:       return "패널의 실제 색 영역과 맞습니다."
+        case .tooNarrow:  return "프로필이 패널보다 좁아서 밝은 색이 형광빛처럼 과하게 보일 수 있습니다."
+        case .tooWide:    return "프로필이 패널보다 넓어서 색이 바래고 무미건조하게 보일 수 있습니다."
+        case .linear:     return "선형(감마 1.0) 작업용 프로필이라 명암과 색이 밋밋하게 보입니다. 화면용으로는 맞지 않습니다."
+        case .notDisplay: return "효과용·변환용 프로필이라 정확한 색이 나오지 않습니다."
+        case .unknown:    return "패널 정보를 알 수 없어 비교하지 못했습니다."
+        }
+    }
+
+    private func roleText(_ role: ProfileRole) -> String {
+        switch role {
+        case .native:    return "이 모니터가 알려준 패널 색으로 만든 프로필"
+        case .sRGB:      return "모니터를 sRGB 모드로 둘 때 · 웹·문서"
+        case .displayP3: return "모니터를 DCI-P3 모드로 둘 때 · 사진·영상"
+        case .adobeRGB:  return "모니터를 Adobe RGB 모드로 둘 때 · 인쇄용 사진"
+        case .other:     return "지금 적용된 프로필"
         }
     }
 

@@ -238,8 +238,21 @@ final class DisplayState: ObservableObject {
         displays.filter { !$0.isBuiltin && !$0.isDisabled }.count
     }
 
+    /// 화면별 색상 프로필 — 지금 쓰는 것과 후보
+    @Published private(set) var profiles: [CGDirectDisplayID: (current: ColorProfileInfo?, candidates: [ProfileCandidate])] = [:]
+
     func refresh() {
         displays = DisplayService.list()
+        var map: [CGDirectDisplayID: (current: ColorProfileInfo?, candidates: [ProfileCandidate])] = [:]
+        for d in displays where !d.isDisabled {
+            map[d.id] = (ColorProfileService.current(for: d.id), ColorProfileService.candidates(for: d.id))
+        }
+        profiles = map
+    }
+
+    func applyProfile(_ p: ColorProfileInfo, to display: DisplayInfo) {
+        lastError = ColorProfileService.apply(p.url, to: display.id) ? nil : tr("색상 프로필을 바꾸지 못했습니다")
+        refreshAfterChange()
     }
 
     /// 화면 구성이 바뀌면 콜백이 여러 번 오므로 모아서 한 번만 처리한다.

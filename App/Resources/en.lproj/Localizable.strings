@@ -199,3 +199,27 @@
 "앱 충돌" = "App Crash";
 "%@이(가) CPU를 많이 쓰고 있습니다" = "%@ is using a lot of CPU";
 "1분 넘게 CPU %.0f%%를 쓰고 있습니다. 느려졌다면 이 앱을 확인해 보세요." = "It has used %.0f%% CPU for over a minute. Check this app if things feel slow.";
+
+/* 색상 프로필 */
+"색상 프로필 · %@" = "Color Profile · %@";
+"지금: %@" = "Current: %@";
+"모니터 자체 메뉴(OSD)의 색 모드와 맞추세요. 표준·기본 모드면 추천 프로필, sRGB 모드면 sRGB, DCI-P3 모드면 Display P3, Adobe RGB 모드면 Adobe RGB를 고릅니다." = "Match the color mode in the monitor's own menu (OSD): Standard → Recommended, sRGB mode → sRGB, DCI-P3 mode → Display P3, Adobe RGB mode → Adobe RGB.";
+"색 영역 sRGB의 %d%%" = "Gamut %d%% of sRGB";
+"추천" = "Recommended";
+"패널과 맞음" = "Matches panel";
+"과하게 진함" = "Oversaturated";
+"색이 바램" = "Washed out";
+"밋밋함" = "Flat";
+"모니터용 아님" = "Not for displays";
+"패널의 실제 색 영역과 맞습니다." = "Matches the panel's actual gamut.";
+"프로필이 패널보다 좁아서 밝은 색이 형광빛처럼 과하게 보일 수 있습니다." = "The profile is narrower than the panel, so bright colors can look neon.";
+"프로필이 패널보다 넓어서 색이 바래고 무미건조하게 보일 수 있습니다." = "The profile is wider than the panel, so colors can look dull and washed out.";
+"선형(감마 1.0) 작업용 프로필이라 명암과 색이 밋밋하게 보입니다. 화면용으로는 맞지 않습니다." = "This is a linear (gamma 1.0) working profile, so contrast and color look flat. It isn't meant for displays.";
+"효과용·변환용 프로필이라 정확한 색이 나오지 않습니다." = "This is an effect or conversion profile and won't show accurate color.";
+"패널 정보를 알 수 없어 비교하지 못했습니다." = "Panel information is unavailable, so it couldn't be compared.";
+"이 모니터가 알려준 패널 색으로 만든 프로필" = "Built from the colors this monitor reports";
+"모니터를 sRGB 모드로 둘 때 · 웹·문서" = "When the monitor is in sRGB mode · web, documents";
+"모니터를 DCI-P3 모드로 둘 때 · 사진·영상" = "When the monitor is in DCI-P3 mode · photo, video";
+"모니터를 Adobe RGB 모드로 둘 때 · 인쇄용 사진" = "When the monitor is in Adobe RGB mode · print photos";
+"지금 적용된 프로필" = "Currently applied";
+"색상 프로필을 바꾸지 못했습니다" = "Couldn't change the color profile";
