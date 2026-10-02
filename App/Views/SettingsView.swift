@@ -1,10 +1,13 @@
 import SwiftUI
 import ServiceManagement
+import CoreImage
 
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
     @Environment(\.openURL) private var openURL
     @State private var launchAtLogin: Bool = (SMAppService.mainApp.status == .enabled)
+    @State private var showKakaoQR = false
+    static let kakaoPayURL = URL(string: "https://qr.kakaopay.com/Ej7jeAAOU")!
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -173,6 +176,18 @@ struct SettingsView: View {
                                 .foregroundStyle(EU.fg3)
                         }
                         Spacer()
+                        // 카카오페이는 한국 사용자에게만 — PC에서 열면 휴대폰으로 찍는 QR이 뜬다.
+                        if L10n.resolved == "ko" {
+                            Button {
+                                showKakaoQR.toggle()
+                            } label: {
+                                Label(tr("카카오페이"), systemImage: "qrcode")
+                            }
+                            .buttonStyle(.eu(.flat, small: true))
+                            .popover(isPresented: $showKakaoQR, arrowEdge: .bottom) {
+                                KakaoPayQR(url: Self.kakaoPayURL)
+                            }
+                        }
                         Button {
                             if let u = URL(string: "https://paypal.me/eond") { openURL(u) }
                         } label: {
@@ -237,5 +252,52 @@ struct SettingsView: View {
                 .help(a.label)
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 카카오페이 송금 QR — PC에서는 휴대폰으로 찍어야 하므로 앱에서 바로 보여준다.
+
+private struct KakaoPayQR: View {
+    let url: URL
+    @State private var copied = false
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("카카오페이로 후원")
+                .font(EU.font(14, .bold))
+            if let img = qrImage(url.absoluteString) {
+                Image(nsImage: img)
+                    .interpolation(.none)
+                    .resizable()
+                    .frame(width: EU.z(200), height: EU.z(200))
+                    .padding(10)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 10))
+            }
+            Text("휴대폰 카메라나 카카오톡으로 찍어 주세요")
+                .font(EU.font(12))
+                .foregroundStyle(EU.fg3)
+            // PC에서 링크를 열면 "모바일에서 이용 가능"만 뜨므로 복사해 휴대폰으로 보내게 한다.
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                copied = true
+            } label: {
+                Label(copied ? tr("복사했습니다 — 카카오톡으로 보내세요") : tr("링크 복사"),
+                      systemImage: copied ? "checkmark" : "doc.on.doc")
+            }
+            .buttonStyle(.eu(copied ? .successFlat : .flat, small: true))
+        }
+        .padding(20)
+    }
+
+    private func qrImage(_ text: String) -> NSImage? {
+        guard let f = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        f.setValue(Data(text.utf8), forKey: "inputMessage")
+        f.setValue("M", forKey: "inputCorrectionLevel")
+        guard let out = f.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)) else { return nil }
+        let rep = NSCIImageRep(ciImage: out)
+        let img = NSImage(size: rep.size)
+        img.addRepresentation(rep)
+        return img
     }
 }

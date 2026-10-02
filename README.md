@@ -91,7 +91,10 @@ App/
 
 ## 후원
 
-앱이 도움이 됐다면 [PayPal로 후원](https://paypal.me/eond)해 주세요. 광고 없이 무료로 유지하는 데 쓰입니다.
+앱이 도움이 됐다면 후원해 주세요. 광고 없이 무료로 유지하는 데 쓰입니다.
+
+- 해외: [PayPal](https://paypal.me/eond)
+- 국내: [카카오페이 송금](https://qr.kakaopay.com/Ej7jeAAOU) (PC에서 열면 휴대폰으로 찍는 QR이 나옵니다)
 
 ## 라이선스
 
