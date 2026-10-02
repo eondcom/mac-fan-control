@@ -4,6 +4,8 @@ import SwiftUI
 struct MacFanControlApp: App {
 
     @StateObject private var state = AppState()
+    @StateObject private var displays = DisplayState()
+    @StateObject private var perf = PerfMonitor()
     @Environment(\.openWindow) private var openWindow
 
     init() {
@@ -27,6 +29,8 @@ struct MacFanControlApp: App {
         Window(tr("맥북 팬 관리"), id: "dashboard") {
             ContentView()
                 .environmentObject(state)
+                .environmentObject(displays)
+                .environmentObject(perf)
                 .frame(minWidth: 820, minHeight: 560)
                 .euTheme(state.themeMode, accent: state.accent)
         }
