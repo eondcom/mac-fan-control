@@ -163,6 +163,27 @@ struct SettingsView: View {
                 linkRow("소스 코드", "GitHub", url: "https://github.com/eondcom/mac-fan-control", icon: "chevron.left.forwardslash.chevron.right")
             }
 
+            section("후원") {
+                EUListRow {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("앱이 도움이 됐다면")
+                            Text("광고 없이 무료로 유지하는 데 쓰입니다")
+                                .font(EU.font(11.5))
+                                .foregroundStyle(EU.fg3)
+                        }
+                        Spacer()
+                        Button {
+                            if let u = URL(string: "https://paypal.me/eond") { openURL(u) }
+                        } label: {
+                            Label(tr("PayPal로 후원"), systemImage: "heart.fill")
+                        }
+                        .buttonStyle(.eu(.solid, small: true))
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+
             Text("© 2026 이온디(eond). 팬 속도 변경은 관리자 권한 도우미를 통해서만 이루어집니다.")
                 .font(EU.font(11.5))
                 .foregroundStyle(EU.fg4)
