@@ -17,8 +17,10 @@ struct PerformanceView: View {
                 nowCard(s)
             }
 
-            offendersCard
-            eventsCard
+            PerfHistoryView(events: perf.events, offenders: perf.offenders, enabled: perf.enabled) {
+                perf.clear()
+            }
+            .equatable()
 
             Text("CPU 사용이 10초 넘게 70% 이상이거나, 속도 제한·메모리 부족·스왑 급증·앱 충돌이 생기면 그 순간의 상위 앱을 기록합니다. 기록은 24시간 보관합니다.")
                 .font(EU.font(11.5))
@@ -132,11 +134,42 @@ struct PerformanceView: View {
         }
     }
 
+    private func pressureText(_ level: Int) -> String {
+        switch level {
+        case 4:  return tr("위험")
+        case 2:  return tr("부족")
+        default: return tr("여유")
+        }
+    }
+
+    private func mb(_ v: Int) -> String {
+        v >= 1024 ? String(format: "%.1fGB", Double(v) / 1024) : "\(v)MB"
+    }
+}
+
+/// 자주 원인·느려진 순간 — 기록이 바뀔 때만 다시 그린다 (.equatable()).
+private struct PerfHistoryView: View, Equatable {
+    let events: [SlowEvent]
+    let offenders: [PerfMonitor.Offender]
+    let enabled: Bool
+    let onClear: () -> Void
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.events == b.events && a.offenders == b.offenders && a.enabled == b.enabled
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            offendersCard
+            eventsCard
+        }
+    }
+
     // MARK: 자주 원인
 
     @ViewBuilder
     private var offendersCard: some View {
-        let list = perf.offenders.prefix(5)
+        let list = offenders.prefix(5)
         if !list.isEmpty {
             EUCard {
                 VStack(alignment: .leading, spacing: 10) {
@@ -172,20 +205,20 @@ struct PerformanceView: View {
         EUCard {
             VStack(alignment: .leading, spacing: 10) {
                 EUCardHeader(title: "최근 24시간 느려진 순간", icon: "clock.arrow.circlepath") {
-                    if !perf.events.isEmpty {
-                        Button(tr("기록 지우기")) { perf.clear() }
+                    if !events.isEmpty {
+                        Button(tr("기록 지우기")) { onClear() }
                             .buttonStyle(.eu(.light, small: true))
                     }
                 }
-                if perf.events.isEmpty {
-                    Text(perf.enabled ? "아직 느려진 순간이 없습니다" : "모니터링을 켜면 기록이 시작됩니다")
+                if events.isEmpty {
+                    Text(enabled ? "아직 느려진 순간이 없습니다" : "모니터링을 켜면 기록이 시작됩니다")
                         .font(EU.font(12.5))
                         .foregroundStyle(EU.fg3)
                         .padding(.vertical, 6)
                 } else {
-                    ForEach(perf.events.prefix(30)) { e in
+                    ForEach(events.prefix(30)) { e in
                         eventRow(e)
-                        if e.id != perf.events.prefix(30).last?.id { EUDivider() }
+                        if e.id != events.prefix(30).last?.id { EUDivider() }
                     }
                 }
             }
@@ -224,25 +257,18 @@ struct PerformanceView: View {
 
     // MARK: 표기
 
-    private func timeRange(_ e: SlowEvent) -> String {
+    /// 줄마다 만들면 무거우므로 하나를 같이 쓴다.
+    private static let timeFormat: DateFormatter = {
         let f = DateFormatter()
-        f.locale = L10n.locale
         f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    private func timeRange(_ e: SlowEvent) -> String {
+        let f = Self.timeFormat
         let secs = Int(e.end.timeIntervalSince(e.start))
         if secs < 5 { return f.string(from: e.start) }
         let dur = secs >= 60 ? trf("%d분", secs / 60) : trf("%d초", secs)
         return "\(f.string(from: e.start)) · \(dur)"
-    }
-
-    private func pressureText(_ level: Int) -> String {
-        switch level {
-        case 4:  return tr("위험")
-        case 2:  return tr("부족")
-        default: return tr("여유")
-        }
-    }
-
-    private func mb(_ v: Int) -> String {
-        v >= 1024 ? String(format: "%.1fGB", Double(v) / 1024) : "\(v)MB"
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import IOKit.pwr_mgt
 
 /// 프로세스 하나의 CPU·메모리
 struct ProcSample: Codable, Hashable, Identifiable {
@@ -26,7 +27,7 @@ struct PerfSample {
 }
 
 /// 느려진 순간 하나 — 이어지는 동안은 한 건으로 묶는다.
-struct SlowEvent: Codable, Identifiable {
+struct SlowEvent: Codable, Identifiable, Equatable {
     var id = UUID()
     let start: Date
     var end: Date
@@ -93,10 +94,12 @@ enum PerfService {
 
     // MARK: 속도 제한
 
+    /// pmset -g therm과 같은 값 — 프로세스를 띄우지 않고 IOKit으로 읽는다.
     static func speedLimit() -> Int? {
-        let out = Shell.run("/usr/bin/pmset", ["-g", "therm"])
-        guard let r = out.range(of: #"CPU_Speed_Limit\s*=\s*(\d+)"#, options: .regularExpression) else { return nil }
-        let v = Int(out[r].split(separator: "=").last?.trimmingCharacters(in: .whitespaces) ?? "")
+        var dict: Unmanaged<CFDictionary>?
+        guard IOPMCopyCPUPowerStatus(&dict) == kIOReturnSuccess,
+              let d = dict?.takeRetainedValue() as? [String: Any] else { return nil }
+        let v = d[kIOPMCPUPowerLimitProcessorSpeedKey] as? Int
         lastSpeedLimit = v
         return v
     }
@@ -156,7 +159,11 @@ final class PerfMonitor: ObservableObject {
     }
 
     @Published private(set) var latest: PerfSample?
-    @Published private(set) var events: [SlowEvent] = []
+    @Published private(set) var events: [SlowEvent] = [] {
+        didSet { if events != oldValue { offenders = Self.rank(events) } }
+    }
+    /// 자주 원인으로 잡힌 앱 — 기록이 바뀔 때만 다시 센다
+    @Published private(set) var offenders: [Offender] = []
 
     private var timer: Timer?
     private var busyStreak = 0
@@ -301,7 +308,7 @@ final class PerfMonitor: ObservableObject {
 
     // MARK: 자주 원인으로 잡힌 앱
 
-    struct Offender: Identifiable {
+    struct Offender: Identifiable, Equatable {
         let name: String
         let count: Int
         let peakCPU: Double
@@ -309,7 +316,7 @@ final class PerfMonitor: ObservableObject {
     }
 
     /// 느려진 순간마다 상위 3개 안에 든 횟수
-    var offenders: [Offender] {
+    private static func rank(_ events: [SlowEvent]) -> [Offender] {
         var count: [String: Int] = [:]
         var peak: [String: Double] = [:]
         for e in events {

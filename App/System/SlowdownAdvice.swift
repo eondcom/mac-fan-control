@@ -18,18 +18,18 @@ enum SlowdownAdvice {
     static let weakBattery = 80
 
     /// 모델별 권장 충전기 — 15·16인치 인텔 맥북 프로는 87W 이상
-    static var recommendedWatts: Int {
+    static let recommendedWatts: Int = {
         let model = sysctlString("hw.model") ?? ""
         let big = ["MacBookPro11,4", "MacBookPro11,5", "MacBookPro13,3", "MacBookPro14,3",
                    "MacBookPro15,1", "MacBookPro15,3", "MacBookPro16,1", "MacBookPro16,4"]
         return big.contains(model) ? 87 : 61
-    }
+    }()
 
     /// 2016~2019 인텔 맥북 프로 — 왼쪽 포트 충전 발열 문제가 알려진 모델
-    static var hasLeftPortIssue: Bool {
+    static let hasLeftPortIssue: Bool = {
         let model = sysctlString("hw.model") ?? ""
         return ["MacBookPro13,", "MacBookPro14,", "MacBookPro15,", "MacBookPro16,"].contains { model.hasPrefix($0) }
-    }
+    }()
 
     static func causes(battery: BatteryInfo, power: PowerMode, speedLimit: Int?, throttleEvents: Int) -> [SlowdownCause] {
         var list: [SlowdownCause] = []

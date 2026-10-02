@@ -55,31 +55,30 @@ enum BatteryService {
         var timeRemaining: String?
         var adapterWatts: Int?
         var batteryWatts: Double?
-        var raw: String
     }
 
-    /// 빠른 폴링용 — 1초마다 호출 가능.
+    /// 빠른 폴링용 — pmset을 띄우지 않고 IOKit 전원 정보로 읽는다.
     static func quickStatus() -> QuickStatus {
-        let out = Shell.run("/usr/bin/pmset", ["-g", "batt"])
-        let onAC = out.contains("AC Power")
-        var statusWord = ""
-        if let m = matchFirst(out, pattern: #"\d+%;\s*([\w ]+?)\s*;"#) {
-            statusWord = m.lowercased()
+        let watts = batteryWatts()
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef],
+              let d = list.lazy.compactMap({
+                  IOPSGetPowerSourceDescription(info, $0)?.takeUnretainedValue() as? [String: Any]
+              }).first(where: { ($0[kIOPSTypeKey] as? String) == kIOPSInternalBatteryType })
+        else {
+            return QuickStatus(isCharging: false, isCharged: false, timeRemaining: nil,
+                               adapterWatts: adapterWatts(), batteryWatts: watts)
         }
-        let charging = onAC && !statusWord.contains("discharging")
-        let charged  = onAC && (statusWord.contains("charged") || statusWord.contains("finishing"))
-
-        var remain: String? = nil
-        if let r = matchFirst(out, pattern: #"(\d+:\d+)\s+remaining"#),
-           r != "0:00", r != "(no estimate)" {
-            remain = r
-        }
-        return QuickStatus(isCharging: charging,
+        let onAC = (d[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
+        let charged = onAC && (d[kIOPSIsChargedKey] as? Bool ?? false)
+        // 충전기에 꽂혀 있어도 전력이 모자라 배터리가 줄고 있으면 충전 중이 아니다.
+        let draining = !(d[kIOPSIsChargingKey] as? Bool ?? false) && !charged && (watts ?? 0) < -0.5
+        let minutes = (onAC ? d[kIOPSTimeToFullChargeKey] : d[kIOPSTimeToEmptyKey]) as? Int ?? -1
+        return QuickStatus(isCharging: onAC && !draining,
                            isCharged: charged,
-                           timeRemaining: remain,
+                           timeRemaining: minutes > 0 ? String(format: "%d:%02d", minutes / 60, minutes % 60) : nil,
                            adapterWatts: onAC ? adapterWatts() : nil,
-                           batteryWatts: batteryWatts(),
-                           raw: out)
+                           batteryWatts: watts)
     }
 
     // MARK: - 전력
