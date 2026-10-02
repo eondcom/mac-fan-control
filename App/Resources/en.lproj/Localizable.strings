@@ -285,3 +285,6 @@
 "복사했습니다 — 카카오톡으로 보내세요" = "Copied — send it via KakaoTalk";
 "링크 복사" = "Copy Link";
 "후원하기" = "Support";
+"확인 중" = "Checking";
+"최신 버전입니다 · %@ 확인" = "You're up to date · checked %@";
+"확인하지 못했습니다 — 인터넷 연결을 확인하세요" = "Couldn't check — check your internet connection";

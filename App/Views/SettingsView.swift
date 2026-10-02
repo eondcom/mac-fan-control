@@ -127,7 +127,8 @@ struct SettingsView: View {
                     HStack {
                         Text("버전")
                         Spacer()
-                        if state.latestRelease == nil {
+                        // 실제로 확인해서 최신일 때만
+                        if case .upToDate = state.updateStatus, state.latestRelease == nil {
                             EUChip(text: "최신", tone: .success, icon: "checkmark")
                         }
                         Text("v\(ReleaseChecker.currentVersion())")
@@ -148,14 +149,25 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.eu(.solid, small: true))
                         } else {
-                            Text("업데이트")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("업데이트")
+                                updateStatusText
+                            }
                             Spacer()
                             Button {
                                 Task { await state.checkUpdate() }
                             } label: {
-                                Label("확인", systemImage: "arrow.clockwise")
+                                if state.updateStatus == .checking {
+                                    HStack(spacing: 6) {
+                                        ProgressView().controlSize(.small)
+                                        Text("확인 중")
+                                    }
+                                } else {
+                                    Label("확인", systemImage: "arrow.clockwise")
+                                }
                             }
                             .buttonStyle(.eu(.neutral, small: true))
+                            .disabled(state.updateStatus == .checking)
                         }
                     }
                 }
@@ -205,6 +217,22 @@ struct SettingsView: View {
         }
         .toggleStyle(.eu)
         .font(EU.font(13))
+    }
+
+    @ViewBuilder
+    private var updateStatusText: some View {
+        switch state.updateStatus {
+        case .upToDate(let at):
+            Text(trf("최신 버전입니다 · %@ 확인", at.formatted(Date.FormatStyle(date: .omitted, time: .shortened).locale(L10n.locale))))
+                .font(EU.font(11.5))
+                .foregroundStyle(EU.successFg)
+        case .failed:
+            Text("확인하지 못했습니다 — 인터넷 연결을 확인하세요")
+                .font(EU.font(11.5))
+                .foregroundStyle(EU.dangerFg)
+        case .idle, .checking:
+            EmptyView()
+        }
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

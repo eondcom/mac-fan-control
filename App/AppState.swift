@@ -51,6 +51,7 @@ final class AppState: ObservableObject {
 
     // 업데이트
     @Published var latestRelease: ReleaseInfo?
+    @Published private(set) var updateStatus: UpdateCheckStatus = .idle
 
     private var timers: [Timer] = []
     private var pendingApply: DispatchWorkItem?
@@ -450,10 +451,21 @@ final class AppState: ObservableObject {
     // MARK: update
 
     func checkUpdate() async {
-        guard let r = await ReleaseChecker.fetchLatest() else { return }
-        let local = ReleaseChecker.currentVersion()
-        if ReleaseChecker.isNewer(r.version, than: local) {
-            self.latestRelease = r
+        updateStatus = .checking
+        // 너무 빨리 끝나면 눌렀는지 모르므로 잠깐은 "확인 중"을 보여준다.
+        async let minDelay: Void = { try? await Task.sleep(nanoseconds: 600_000_000) }()
+        let r = await ReleaseChecker.fetchLatest()
+        _ = await minDelay
+        guard let r else {
+            updateStatus = .failed
+            return
+        }
+        if ReleaseChecker.isNewer(r.version, than: ReleaseChecker.currentVersion()) {
+            latestRelease = r
+            updateStatus = .idle
+        } else {
+            latestRelease = nil
+            updateStatus = .upToDate(Date())
         }
     }
 }
