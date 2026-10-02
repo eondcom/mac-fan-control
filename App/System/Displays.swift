@@ -14,6 +14,8 @@ struct DisplayInfo: Identifiable, Equatable {
     let modes: [DisplayModeInfo]
     /// 패널 원래 픽셀 폭 — 배율과 부하를 따지는 기준
     let nativeWidth: Int
+    /// 미러링 중이면 따라 그리는 화면
+    var mirrorOf: CGDirectDisplayID? = nil
 }
 
 /// 해상도 하나 — "보이는 크기"와 실제로 그리는 픽셀
@@ -117,8 +119,6 @@ enum DisplayService {
         let mainID = CGMainDisplayID()
         var result: [DisplayInfo] = []
         for id in ids.prefix(Int(count)) {
-            // 미러링 중인 보조 화면은 따로 보여주지 않는다.
-            if CGDisplayIsInMirrorSet(id) != 0, CGDisplayMirrorsDisplay(id) != kCGNullDirectDisplay { continue }
             let modes = availableModes(id)
             let native = nativeWidth(id)
                 ?? modes.filter { $0.pixelWidth == $0.width }.map(\.pixelWidth).max()
@@ -131,7 +131,8 @@ enum DisplayService {
                 isDisabled: CGDisplayIsActive(id) == 0,
                 current: CGDisplayCopyDisplayMode(id).map(info),
                 modes: modes,
-                nativeWidth: native))
+                nativeWidth: native,
+                mirrorOf: { let m = CGDisplayMirrorsDisplay(id); return m == kCGNullDirectDisplay ? nil : m }()))
         }
         // 주 화면 → 외장 → 내장 순
         return result.sorted {
@@ -259,6 +260,8 @@ final class DisplayState: ObservableObject {
     @Published private(set) var windowServerCPU: Double?
     @Published private(set) var lastError: String?
     @Published private(set) var links: [CGDirectDisplayID: DisplayLink] = [:]
+    @Published private(set) var sidecarDevices: [SidecarDevice] = []
+    @Published private(set) var sidecarBusy: String?
 
     /// 외장 모니터가 연결되면 내장 화면을 자동으로 끈다.
     @Published var autoBuiltinOff: Bool = UserDefaults.standard.bool(forKey: "display_auto_builtin_off") {
@@ -311,6 +314,29 @@ final class DisplayState: ObservableObject {
             map[d.id] = (ColorProfileService.current(for: d.id), ColorProfileService.candidates(for: d.id))
         }
         profiles = map
+    }
+
+    func refreshSidecar() {
+        let list = SidecarService.devices()
+        if list != sidecarDevices { sidecarDevices = list }
+    }
+
+    func setSidecar(_ device: SidecarDevice, connected: Bool) {
+        sidecarBusy = device.id
+        SidecarService.setConnected(connected, device) { [weak self] err in
+            guard let self else { return }
+            self.sidecarBusy = nil
+            self.lastError = err
+            self.refreshSidecar()
+            self.refreshAfterChange()
+        }
+    }
+
+    /// 확장 ↔ 미러링 — 주 화면을 따라 그리게 한다.
+    func setMirroring(_ on: Bool, for display: DisplayInfo) {
+        let ok = DisplayService.setMirror(display.id, of: on ? CGMainDisplayID() : nil)
+        lastError = ok ? nil : tr("미러링을 바꾸지 못했습니다")
+        refreshAfterChange()
     }
 
     func refreshLinks() {
@@ -397,6 +423,8 @@ final class DisplayState: ObservableObject {
     }
 
     private func sampleLoad() {
+        // 탭을 보는 동안만 근처 아이패드도 함께 찾는다.
+        refreshSidecar()
         Task.detached { [weak self] in
             let v = DisplayService.windowServerCPU()
             await MainActor.run { self?.windowServerCPU = v }

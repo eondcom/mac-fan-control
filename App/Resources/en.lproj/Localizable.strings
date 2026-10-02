@@ -288,3 +288,23 @@
 "확인 중" = "Checking";
 "최신 버전입니다 · %@ 확인" = "You're up to date · checked %@";
 "확인하지 못했습니다 — 인터넷 연결을 확인하세요" = "Couldn't check — check your internet connection";
+
+/* 보조 모니터 */
+"보조 모니터" = "Secondary Displays";
+"아이패드 (Sidecar)" = "iPad (Sidecar)";
+"이 맥에서는 Sidecar를 쓸 수 없습니다" = "Sidecar isn't available on this Mac";
+"근처에 아이패드가 없습니다. 같은 Apple ID로 로그인하고, 화면을 켠 채 Wi-Fi·블루투스·Handoff를 켜 두세요." = "No iPad nearby. Sign in with the same Apple ID, keep its screen on, and turn on Wi-Fi, Bluetooth and Handoff.";
+"해제" = "Disconnect";
+"연결" = "Connect";
+"아이폰·아이패드·안드로이드 (OpenDisplay)" = "iPhone · iPad · Android (OpenDisplay)";
+"OpenDisplay 열기" = "Open OpenDisplay";
+"설치하기" = "Install";
+"같은 Wi-Fi나 USB로 연결합니다. 기기에 수신 앱을 설치하세요 — 아이폰·아이패드는 OpenDisplay, 안드로이드는 커뮤니티 수신 앱." = "Connects over the same Wi-Fi or USB. Install a receiver app on the device — OpenDisplay for iPhone/iPad, a community receiver for Android.";
+"안드로이드 수신 앱" = "Android receiver app";
+"확장 / 미러링" = "Extend / Mirror";
+"확장" = "Extend";
+"미러링" = "Mirror";
+"미러링은 주 화면과 똑같이 보여줍니다. 혼자 쓸 때는 확장이 넓고, 발표할 때는 미러링이 편합니다." = "Mirroring shows the same picture as the main display. Extend gives more space for yourself; mirror is handy for presenting.";
+"미러링을 바꾸지 못했습니다" = "Couldn't change mirroring";
+"Sidecar를 쓸 수 없습니다" = "Sidecar is unavailable";
+"아이패드" = "iPad";

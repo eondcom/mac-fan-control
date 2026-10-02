@@ -25,7 +25,10 @@ struct DisplayView: View {
                 builtinCard(b)
             }
 
-            ForEach(displays.displays.filter { !$0.isDisabled }) { d in
+            secondaryCard
+
+            // 미러링 중인 화면은 주 화면을 따라 그리므로 해상도·색은 주 화면에서 고른다.
+            ForEach(displays.displays.filter { !$0.isDisabled && $0.mirrorOf == nil }) { d in
                 resolutionCard(d)
                 colorCard(d)
             }
@@ -181,6 +184,94 @@ struct DisplayView: View {
                 }
             }
         }
+    }
+
+    // MARK: 보조 모니터 — 아이패드(Sidecar)·OpenDisplay·미러링
+
+    private var secondaryCard: some View {
+        let others = displays.displays.filter { !$0.isDisabled && !$0.isMain }
+
+        return EUCard {
+            VStack(alignment: .leading, spacing: 12) {
+                EUCardHeader(title: "보조 모니터", icon: "ipad.and.iphone")
+
+                // 아이패드 — Sidecar
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("아이패드 (Sidecar)")
+                        .font(EU.font(12.5, .semibold))
+                    if !SidecarService.isAvailable {
+                        hint("이 맥에서는 Sidecar를 쓸 수 없습니다")
+                    } else if displays.sidecarDevices.isEmpty {
+                        hint("근처에 아이패드가 없습니다. 같은 Apple ID로 로그인하고, 화면을 켠 채 Wi-Fi·블루투스·Handoff를 켜 두세요.")
+                    } else {
+                        ForEach(displays.sidecarDevices) { dev in
+                            HStack(spacing: 10) {
+                                Image(systemName: "ipad.landscape")
+                                    .foregroundStyle(dev.connected ? eu.primary : EU.fg3)
+                                Text(dev.name).font(EU.font(13, .medium))
+                                if dev.connected { EUChip(text: "연결됨", tone: .success) }
+                                Spacer()
+                                if displays.sidecarBusy == dev.id {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Button(dev.connected ? tr("해제") : tr("연결")) {
+                                        displays.setSidecar(dev, connected: !dev.connected)
+                                    }
+                                    .buttonStyle(.eu(dev.connected ? .neutral : .solid, small: true))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                EUDivider()
+
+                // 아이폰·아이패드·안드로이드 — OpenDisplay
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("아이폰·아이패드·안드로이드 (OpenDisplay)")
+                            .font(EU.font(12.5, .semibold))
+                        Spacer()
+                        Button(OpenDisplayApp.isInstalled ? tr("OpenDisplay 열기") : tr("설치하기")) {
+                            OpenDisplayApp.open()
+                        }
+                        .buttonStyle(.eu(.flat, small: true))
+                    }
+                    hint("같은 Wi-Fi나 USB로 연결합니다. 기기에 수신 앱을 설치하세요 — 아이폰·아이패드는 OpenDisplay, 안드로이드는 커뮤니티 수신 앱.")
+                    Link(destination: OpenDisplayApp.androidURL) {
+                        Label(tr("안드로이드 수신 앱"), systemImage: "arrow.up.right.square")
+                            .font(EU.font(12))
+                    }
+                }
+
+                // 확장 ↔ 미러링 — 주 화면이 아닌 화면마다
+                if !others.isEmpty {
+                    EUDivider()
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("확장 / 미러링")
+                            .font(EU.font(12.5, .semibold))
+                        ForEach(others) { d in
+                            HStack {
+                                Text(d.name).font(EU.font(13, .medium)).lineLimit(1)
+                                Spacer()
+                                EUSeg(selection: Binding(
+                                        get: { d.mirrorOf != nil },
+                                        set: { displays.setMirroring($0, for: d) }),
+                                      options: [(false, "확장"), (true, "미러링")])
+                            }
+                        }
+                        hint("미러링은 주 화면과 똑같이 보여줍니다. 혼자 쓸 때는 확장이 넓고, 발표할 때는 미러링이 편합니다.")
+                    }
+                }
+            }
+        }
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(tr(text))
+            .font(EU.font(11.5))
+            .foregroundStyle(EU.fg3)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: 색상 프로필
