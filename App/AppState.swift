@@ -73,6 +73,7 @@ final class AppState: ObservableObject {
     // 업데이트
     @Published var latestRelease: ReleaseInfo?
     @Published private(set) var updateStatus: UpdateCheckStatus = .idle
+    @Published private(set) var installStatus: UpdateInstallStatus = .idle
 
     private var timers: [Timer] = []
     private var pendingApply: DispatchWorkItem?
@@ -552,6 +553,40 @@ final class AppState: ObservableObject {
     }
 
     // MARK: update
+
+    var isInstallingUpdate: Bool { installStatus == .downloading || installStatus == .installing }
+
+    /// 메뉴바·사이드바 업데이트 버튼 — 진행 상태에 따라 문구가 바뀐다.
+    var updateActionLabel: (title: String, icon: String) {
+        switch installStatus {
+        case .downloading: return (tr("내려받는 중…"), "arrow.down.circle")
+        case .installing:  return (tr("설치 중…"), "arrow.triangle.2.circlepath")
+        case .failed:      return (tr("업데이트 실패 — 다시 시도"), "exclamationmark.triangle")
+        case .idle:        return (trf("v%@로 업데이트", latestRelease?.version ?? ""), "arrow.down.circle.fill")
+        }
+    }
+
+    /// 새 버전을 받아 바꿔 끼우고 다시 띄운다. 개발 빌드면 다운로드 페이지를 연다.
+    func installUpdate() {
+        guard let r = latestRelease else { return }
+        guard UpdateInstaller.canReplaceCurrent, r.dmgURL != nil else {
+            NSWorkspace.shared.open(r.tagURL)
+            return
+        }
+        guard installStatus != .downloading, installStatus != .installing else { return }
+        installStatus = .downloading
+        Task {
+            do {
+                let staged = try await UpdateInstaller.prepare(r)
+                installStatus = .installing
+                UpdateInstaller.replaceAndRelaunch(with: staged)
+            } catch let f as UpdateInstaller.Failure {
+                installStatus = .failed(f.message)
+            } catch {
+                installStatus = .failed(tr("업데이트하지 못했습니다"))
+            }
+        }
+    }
 
     func checkUpdate() async {
         updateStatus = .checking

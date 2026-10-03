@@ -77,12 +77,15 @@ struct MenuBarView: View {
             .background(EU.c1, in: RoundedRectangle(cornerRadius: EU.rRow + 2, style: .continuous))
 
             if let r = state.latestRelease {
+                let l = state.updateActionLabel
                 Button {
-                    openURL(r.tagURL)
+                    state.installUpdate()
                 } label: {
-                    Label(trf("v%@ 업데이트 있음", r.version), systemImage: "arrow.down.circle.fill")
+                    Label(l.title, systemImage: l.icon)
                 }
                 .buttonStyle(.eu(.flat, small: true, fill: true))
+                .disabled(state.isInstallingUpdate)
+                .help(trf("v%@을 내려받아 설치하고 다시 실행합니다", r.version))
             }
 
             HStack(spacing: 6) {

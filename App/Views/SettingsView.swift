@@ -140,14 +140,16 @@ struct SettingsView: View {
                 EUListRow {
                     HStack {
                         if let r = state.latestRelease {
-                            Text(trf("새 버전 v%@", r.version))
-                            Spacer()
-                            Button {
-                                openURL(r.tagURL)
-                            } label: {
-                                Label("다운로드", systemImage: "arrow.down.circle")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(trf("새 버전 v%@", r.version))
+                                if case .failed(let msg) = state.installStatus {
+                                    Text(msg).font(EU.font(11.5)).foregroundStyle(EU.dangerFg)
+                                }
                             }
-                            .buttonStyle(.eu(.solid, small: true))
+                            Spacer()
+                            Button("릴리스 노트") { openURL(r.tagURL) }
+                                .buttonStyle(.eu(.light, small: true))
+                            UpdateButton()
                         } else {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("업데이트")
@@ -326,5 +328,29 @@ struct KakaoPayQR: View {
         let img = NSImage(size: rep.size)
         img.addRepresentation(rep)
         return img
+    }
+}
+
+/// 새 버전 받기 → 바꿔 끼우기 → 다시 실행
+private struct UpdateButton: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
+        let busy = state.isInstallingUpdate
+        Button {
+            state.installUpdate()
+        } label: {
+            if busy {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(state.installStatus == .downloading ? "내려받는 중" : "설치 중")
+                }
+            } else {
+                Label(UpdateInstaller.canReplaceCurrent ? "업데이트" : "다운로드", systemImage: "arrow.down.circle")
+            }
+        }
+        .buttonStyle(.eu(.solid, small: true))
+        .disabled(busy)
+        .help("새 버전을 받아 설치하고 앱을 다시 실행합니다")
     }
 }
