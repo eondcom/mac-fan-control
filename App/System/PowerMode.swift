@@ -11,8 +11,9 @@ enum PowerModeService {
         ProcessInfo.processInfo.isLowPowerModeEnabled ? .low : .normal
     }
 
-    /// 관리자 권한 요청 (osascript) 후 pmset 적용.
+    /// 헬퍼가 설치돼 있으면 암호 없이, 없으면 관리자 권한을 물어 pmset 적용.
     static func set(_ mode: PowerMode) -> Bool {
+        if FanHelper.isReady, FanHelper.setLowPower(mode == .low) { return true }
         let value = (mode == .low) ? "1" : "0"
         let cmd = "pmset lowpowermode \(value)"
         let escaped = cmd.replacingOccurrences(of: "\\", with: "\\\\")

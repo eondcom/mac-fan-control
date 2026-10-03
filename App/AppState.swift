@@ -30,6 +30,13 @@ final class AppState: ObservableObject {
     /// 고온이 이어지면 다음 구간으로 1시간 임시 상향
     @AppStorage("boost_enabled") var boostEnabled: Bool = true
     @AppStorage("boost_temp")    var boostTemp: Int = 80
+    /// CPU 부하가 오르면 온도보다 먼저 팬을 올린다 (구간 자동일 때)
+    @AppStorage("preempt_fan")   var preemptFan: Bool = true
+    /// 최근 CPU 사용률 (부드럽게) — 선제 팬 판단용
+    @Published private(set) var cpuLoad: Double = 0
+    /// 지금 부하 때문에 팬을 미리 올린 만큼 (°C 환산)
+    @Published private(set) var preemptLead: Double = 0
+    private let loadMeter = CPULoadMeter()
     /// 구간별 상한(구간 자동) · 고정값(구간 고정)
     @Published private(set) var zoneCaps: [FanZone: Int] = [:]
     @Published private(set) var zoneFixedRPM: [FanZone: Int] = [:]
@@ -45,6 +52,20 @@ final class AppState: ObservableObject {
     @Published private(set) var boostZone: FanZone?
     @Published private(set) var boostUntil: Date?
     private var hotSince: Date?
+
+    // 스로틀 전 자동 절전 — 뜨거우면 저전력 모드로 터보를 막고, 식으면 되돌린다.
+    @AppStorage("guard_enabled") var guardEnabled: Bool = false
+    @AppStorage("guard_on_temp")  var guardOnTemp: Int = 85
+    @AppStorage("guard_off_temp") var guardOffTemp: Int = 70
+    /// 이 앱이 켠 저전력 모드 — 사용자가 직접 켠 건 되돌리지 않는다.
+    @Published private(set) var guardActive = UserDefaults.standard.bool(forKey: "guard_active") {
+        didSet { UserDefaults.standard.set(guardActive, forKey: "guard_active") }
+    }
+    private var guardHotSince: Date?
+    private var guardCoolSince: Date?
+    private var guardSwitching = false
+    static let guardSustain: TimeInterval = 30
+    static let guardCooldown: TimeInterval = 120
     /// 팬 쓰기용 root 헬퍼 상태
     @Published private(set) var helperStatus: FanHelper.Status = .ready
     @Published private(set) var helperInstalling = false
@@ -91,7 +112,7 @@ final class AppState: ObservableObject {
             forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             let mode = PowerModeService.current()
-            Task { @MainActor in if self?.power != mode { self?.power = mode } }
+            Task { @MainActor in self?.powerChangedOutside(mode) }
         }
 
         if fanMode == .zone { scheduleApply() }
@@ -137,10 +158,15 @@ final class AppState: ObservableObject {
         Task.detached { [weak self] in
             let t = Thermal.read().smoothed
             guard let self else { return }
+            let load = self.loadMeter.sample()
             await MainActor.run {
                 // 같은 값을 다시 넣어도 모든 화면이 다시 그려지므로 바뀔 때만 넣는다.
                 if self.thermal != t { self.thermal = t }
+                // 한 번 튀는 건 반만 반영
+                let smoothed = self.cpuLoad * 0.5 + load * 0.5
+                if abs(smoothed - self.cpuLoad) >= 1 { self.cpuLoad = smoothed }
                 self.controlStep()
+                self.guardStep()
             }
         }
     }
@@ -172,6 +198,8 @@ final class AppState: ObservableObject {
     // MARK: actions
 
     func setPowerMode(_ mode: PowerMode) {
+        // 직접 고르면 자동 절전이 되돌리지 않는다.
+        guardActive = false
         Task.detached { [weak self] in
             let ok = PowerModeService.set(mode)
             guard let self, ok else { return }
@@ -354,7 +382,9 @@ final class AppState: ObservableObject {
         } else {
             // 구간을 바꾼 직후엔 이전 목표에 묶이지 않고 바로 새 구간으로 간다.
             let prev = fanTarget.flatMap { range.contains($0) ? $0 : nil }
-            desired = FanCurve.target(temp: temp, lower: range.lowerBound,
+            let lead = preemptFan ? FanCurve.leadTemp(load: cpuLoad) : 0
+            if preemptLead != lead { preemptLead = lead }
+            desired = FanCurve.target(temp: temp + lead, lower: range.lowerBound,
                                       cap: zoneCap(zone), previous: force || boosted ? nil : prev)
         }
 
@@ -442,6 +472,79 @@ final class AppState: ObservableObject {
     func setBoostEnabled(_ on: Bool) {
         boostEnabled = on
         if on { Notifier.requestAuthorization() } else { cancelBoost() }
+    }
+
+    // MARK: 스로틀 전 자동 절전
+
+    /// 2초마다 — CPU 온도가 켜는 온도 이상으로 30초 이어지면 저전력 모드, 끄는 온도 아래로 2분이면 되돌린다.
+    private func guardStep() {
+        guard guardEnabled, !guardSwitching, let temp = thermal.cpuTemp else {
+            guardHotSince = nil
+            guardCoolSince = nil
+            return
+        }
+        let now = Date()
+        if power == .normal {
+            guardCoolSince = nil
+            guardHotSince = temp >= Double(guardOnTemp) ? (guardHotSince ?? now) : nil
+            guard let since = guardHotSince, now.timeIntervalSince(since) >= Self.guardSustain else { return }
+            guardHotSince = nil
+            switchPowerByGuard(.low, temp: temp)
+        } else if guardActive {
+            guardHotSince = nil
+            guardCoolSince = temp < Double(guardOffTemp) ? (guardCoolSince ?? now) : nil
+            guard let since = guardCoolSince, now.timeIntervalSince(since) >= Self.guardCooldown else { return }
+            guardCoolSince = nil
+            switchPowerByGuard(.normal, temp: temp)
+        }
+    }
+
+    private func switchPowerByGuard(_ mode: PowerMode, temp: Double) {
+        // 헬퍼가 없으면 매번 암호를 물어야 하므로 자동 전환하지 않는다.
+        guard FanHelper.isReady else { return }
+        guardSwitching = true
+        Task.detached { [weak self] in
+            let ok = FanHelper.setLowPower(mode == .low)
+            await MainActor.run {
+                guard let self else { return }
+                self.guardSwitching = false
+                guard ok else { return }
+                self.power = mode
+                self.guardActive = mode == .low
+                if mode == .low {
+                    Notifier.post(id: "guard", title: tr("저전력 모드로 전환했습니다"),
+                                  body: trf("CPU가 %.0f°C로 뜨거워 속도 제한이 걸리기 전에 터보를 낮췄습니다. %d°C 아래로 식으면 되돌립니다.",
+                                            temp, self.guardOffTemp))
+                } else {
+                    Notifier.post(id: "guard", title: tr("기본 모드로 되돌렸습니다"),
+                                  body: trf("CPU가 %.0f°C로 식어 원래 성능으로 돌아왔습니다.", temp))
+                }
+            }
+        }
+    }
+
+    /// 시스템 설정·제어 센터에서 바꾸면 사용자의 선택으로 본다.
+    private func powerChangedOutside(_ mode: PowerMode) {
+        guard power != mode else { return }
+        power = mode
+        if !guardSwitching { guardActive = false }
+    }
+
+    func setGuardEnabled(_ on: Bool) {
+        guardEnabled = on
+        if on {
+            Notifier.requestAuthorization()
+        } else if guardActive {
+            // 끄면 자동으로 켠 저전력 모드도 되돌린다.
+            guardActive = false
+            setPowerMode(.normal)
+        }
+    }
+
+    /// 끄는 온도는 켜는 온도보다 5°C 이상 낮게
+    func setGuardTemps(on: Int? = nil, off: Int? = nil) {
+        if let on { guardOnTemp = on; guardOffTemp = min(guardOffTemp, on - 5) }
+        if let off { guardOffTemp = min(off, guardOnTemp - 5) }
     }
 
     private func clamp(_ v: Int, to r: ClosedRange<Int>) -> Int {

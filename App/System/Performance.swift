@@ -1,6 +1,7 @@
 import Foundation
 import Darwin
 import IOKit.pwr_mgt
+import AppKit
 
 /// 프로세스 하나의 CPU·메모리
 struct ProcSample: Codable, Hashable, Identifiable {
@@ -74,9 +75,19 @@ enum PerfService {
 
     // MARK: CPU 전체 — 직전 측정과의 차이로 계산
 
-    private static var lastTicks: (busy: UInt64, total: UInt64)?
+    private static let meter = CPULoadMeter()
 
-    static func cpuBusy() -> Double {
+    static func cpuBusy() -> Double { meter.sample() }
+}
+
+/// 직전 측정과의 차이로 CPU 사용률을 잰다 — 쓰는 곳마다 따로 두어야 간격이 섞이지 않는다.
+final class CPULoadMeter: @unchecked Sendable {
+    private var lastTicks: (busy: UInt64, total: UInt64)?
+    private let lock = NSLock()
+
+    /// 0...100
+    func sample() -> Double {
+        lock.lock(); defer { lock.unlock() }
         var info = host_cpu_load_info()
         var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info>.size / MemoryLayout<integer_t>.size)
         let kr = withUnsafeMutablePointer(to: &info) {
@@ -92,6 +103,9 @@ enum PerfService {
         guard let last = lastTicks, total > last.total else { return 0 }
         return Double(busy - last.busy) / Double(total - last.total) * 100
     }
+}
+
+extension PerfService {
 
     // MARK: 메모리
 
@@ -201,6 +215,19 @@ final class PerfMonitor: ObservableObject {
         }
     }
 
+    /// CPU를 오래 쓰는 앱을 백그라운드 우선순위로 — 그 앱만 느려지고 나머지는 쾌적하게
+    @Published var lowerHogs: Bool = UserDefaults.standard.bool(forKey: "perf_lower_hogs") {
+        didSet {
+            UserDefaults.standard.set(lowerHogs, forKey: "perf_lower_hogs")
+            if !lowerHogs { restoreAll() }
+            reschedule()
+        }
+    }
+    /// 우선순위를 낮춘 앱 (pid → 이름)
+    @Published private(set) var lowered: [Int32: String] = [:]
+    /// 낮춘 앱이 CPU를 덜 쓰기 시작한 때
+    private var loweredCoolSince: [Int32: Date] = [:]
+
     @Published private(set) var latest: PerfSample?
     @Published private(set) var events: [SlowEvent] = [] {
         didSet { if events != oldValue { offenders = Self.rank(events) } }
@@ -235,6 +262,12 @@ final class PerfMonitor: ObservableObject {
     init() {
         load()
         reschedule()
+        // 앱이 꺼져도 낮춘 우선순위가 남지 않게 되돌린다.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.restoreAll() }
+        }
     }
 
     /// 화면이 나타날 때 부른다 — 사라질 때 stopLive()와 짝.
@@ -250,7 +283,7 @@ final class PerfMonitor: ObservableObject {
 
     /// 기록 중이거나 보는 화면이 있을 때만 타이머를 돌린다.
     private func reschedule() {
-        let want: TimeInterval = viewers > 0 ? Self.liveInterval : (enabled ? Self.interval : 0)
+        let want: TimeInterval = viewers > 0 ? Self.liveInterval : (enabled || lowerHogs ? Self.interval : 0)
         guard want != timerInterval else { return }
         timer?.invalidate()
         timer = nil
@@ -292,6 +325,7 @@ final class PerfMonitor: ObservableObject {
 
     private func handle(_ s: PerfSample) {
         latest = s
+        if lowerHogs || enabled { checkHogs(s) }
         guard enabled else { return }
 
         var reasons = Set<SlowReason>()
@@ -309,7 +343,6 @@ final class PerfMonitor: ObservableObject {
         } else {
             record(s, reasons)
         }
-        checkHogs(s)
     }
 
     private func record(_ s: PerfSample, _ reasons: Set<SlowReason>) {
@@ -356,18 +389,70 @@ final class PerfMonitor: ObservableObject {
     // MARK: 오래 CPU를 쓰는 앱 알림
 
     private func checkHogs(_ s: PerfSample) {
+        checkLowered(s)
         let hot = Set(s.top.filter { $0.cpu >= Self.hogThreshold }.map(\.name))
         hogSince = hogSince.filter { hot.contains($0.key) }
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
         for name in hot {
             let since = hogSince[name] ?? s.date
             hogSince[name] = since
-            guard hogAlert, s.date.timeIntervalSince(since) >= 60 else { continue }
+            guard s.date.timeIntervalSince(since) >= 60 else { continue }
+            if lowerHogs {
+                for p in s.top where p.name == name && p.cpu >= Self.hogThreshold {
+                    lower(p, front: front)
+                }
+            }
+            guard hogAlert, enabled else { continue }
             if let last = hogNotified[name], Date().timeIntervalSince(last) < 1800 { continue }
             hogNotified[name] = Date()
             let cpu = s.top.first { $0.name == name }?.cpu ?? 0
             Notifier.post(id: "hog-\(name)", title: trf("%@이(가) CPU를 많이 쓰고 있습니다", name),
                           body: trf("1분 넘게 CPU %.0f%%를 쓰고 있습니다. 느려졌다면 이 앱을 확인해 보세요.", cpu))
         }
+    }
+
+    // MARK: 원인 앱 우선순위 낮추기
+
+    private func lower(_ p: ProcSample, front: pid_t?) {
+        // 지금 쓰고 있는 앱·이 앱 자신은 건드리지 않는다.
+        guard lowered[p.pid] == nil, p.pid != front, p.pid != getpid() else { return }
+        // 내 계정 프로세스만 바뀐다 — 시스템 프로세스는 실패하고 넘어간다.
+        guard setpriority(PRIO_DARWIN_PROCESS, id_t(p.pid), PRIO_DARWIN_BG) == 0 else { return }
+        lowered[p.pid] = p.name
+        Notifier.post(id: "lower-\(p.name)", title: trf("%@의 우선순위를 낮췄습니다", p.name),
+                      body: trf("1분 넘게 CPU %.0f%%를 써서 다른 앱이 먼저 돌도록 했습니다. 이 앱을 앞으로 가져오거나 CPU 사용이 줄면 되돌립니다.", p.cpu))
+    }
+
+    /// 낮춘 앱이 1분 넘게 조용하거나, 사용자가 앞으로 가져오면 되돌린다.
+    private func checkLowered(_ s: PerfSample) {
+        guard !lowered.isEmpty else { return }
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        for pid in Array(lowered.keys) {
+            if kill(pid, 0) != 0 {
+                lowered[pid] = nil
+                loweredCoolSince[pid] = nil
+                continue
+            }
+            if pid == front { restore(pid); continue }
+            let busy = s.top.contains { $0.pid == pid && $0.cpu >= Self.hogThreshold }
+            if busy {
+                loweredCoolSince[pid] = nil
+            } else {
+                let since = loweredCoolSince[pid] ?? s.date
+                loweredCoolSince[pid] = since
+                if s.date.timeIntervalSince(since) >= 60 { restore(pid) }
+            }
+        }
+    }
+
+    func restore(_ pid: Int32) {
+        setpriority(PRIO_DARWIN_PROCESS, id_t(pid), 0)
+        lowered[pid] = nil
+        loweredCoolSince[pid] = nil
+    }
+
+    func restoreAll() {
+        for pid in Array(lowered.keys) { restore(pid) }
     }
 
     // MARK: 자주 원인으로 잡힌 앱

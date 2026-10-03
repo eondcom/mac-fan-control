@@ -4,7 +4,7 @@ import Foundation
 enum FanHelper {
     static let installedPath = "/Library/PrivilegedHelperTools/com.eond.macfancontrol.smc"
     /// Helper/main.swift의 helperVersion과 같아야 한다.
-    static let expectedVersion = "1"
+    static let expectedVersion = "2"
 
     enum Status { case ready, missing, outdated }
 
@@ -47,6 +47,11 @@ enum FanHelper {
     @discardableResult
     static func setFanSpeed(rpm: Int) -> Bool {
         Shell.runReturningStatus(installedPath, ["set", String(rpm)]) == 0
+    }
+
+    /// 저전력 모드 — 헬퍼가 있으면 암호 없이 바꾼다.
+    static func setLowPower(_ on: Bool) -> Bool {
+        Shell.runReturningStatus(installedPath, ["lowpower", on ? "1" : "0"]) == 0
     }
 
     @discardableResult

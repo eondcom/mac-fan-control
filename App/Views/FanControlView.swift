@@ -51,6 +51,7 @@ struct FanControlView: View {
             ZoneEditor(zone: state.fanZone)
 
             BoostSettings()
+            ThermalGuardSettings()
 
             Text("앱을 종료하면 팬은 시스템 자동으로 돌아갑니다.")
                 .font(EU.font(11.5))
@@ -334,6 +335,23 @@ private struct BoostSettings: View {
             VStack(alignment: .leading, spacing: 14) {
                 EUCardHeader(title: "고온 자동 상향", icon: "thermometer.high")
 
+                Toggle(isOn: $state.preemptFan) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text("부하가 오르면 팬 미리 올리기").font(EU.font(13, .semibold))
+                            if state.preemptFan && state.preemptLead > 0 && state.fanMode == .zone {
+                                EUChip(text: "작동 중", tone: .primary)
+                            }
+                        }
+                        Text("온도는 CPU 부하보다 몇 초 늦게 오릅니다. 부하가 50% 넘으면 미리 팬을 올려 온도 정점을 낮춥니다 (구간 상한은 넘지 않음)")
+                            .font(EU.font(11.5))
+                            .foregroundStyle(EU.fg3)
+                    }
+                }
+                .toggleStyle(.eu)
+
+                EUDivider()
+
                 Toggle(isOn: Binding(get: { state.boostEnabled }, set: { state.setBoostEnabled($0) })) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("뜨거우면 다음 구간으로 1시간").font(EU.font(13, .semibold))
@@ -363,6 +381,65 @@ private struct BoostSettings: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// 스로틀 전 자동 절전 — 뜨거우면 저전력 모드로 터보를 막는다.
+private struct ThermalGuardSettings: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
+        EUCard(padding: 20) {
+            VStack(alignment: .leading, spacing: 14) {
+                EUCardHeader(title: "스로틀 전 자동 절전", icon: "bolt.badge.clock") {
+                    if state.guardActive { EUChip(text: "절전 중", tone: .success, icon: "leaf.fill") }
+                }
+
+                Toggle(isOn: Binding(get: { state.guardEnabled }, set: { state.setGuardEnabled($0) })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("뜨거우면 저전력 모드로").font(EU.font(13, .semibold))
+                        Text(trf("CPU가 켜는 온도 이상으로 %d초 이어지면 저전력 모드로 터보를 낮추고, 끄는 온도 아래로 %d분 식으면 되돌립니다",
+                                 Int(AppState.guardSustain), Int(AppState.guardCooldown / 60)))
+                            .font(EU.font(11.5))
+                            .foregroundStyle(EU.fg3)
+                    }
+                }
+                .toggleStyle(.eu)
+
+                if state.guardEnabled {
+                    if state.helperStatus != .ready {
+                        Text("팬 제어 도우미를 설치해야 암호 없이 자동으로 바뀝니다")
+                            .font(EU.font(11.5))
+                            .foregroundStyle(EU.warningFg)
+                    }
+                    tempSlider(title: "켜는 온도", value: state.guardOnTemp, bounds: 75...95) {
+                        state.setGuardTemps(on: $0)
+                    }
+                    tempSlider(title: "끄는 온도", value: state.guardOffTemp, bounds: 55...85) {
+                        state.setGuardTemps(off: $0)
+                    }
+                }
+            }
+        }
+    }
+
+    private func tempSlider(title: String, value: Int, bounds: ClosedRange<Int>,
+                            set: @escaping (Int) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(tr(title)).font(EU.font(12, .medium)).foregroundStyle(EU.fg3)
+                Spacer()
+                EUStatValue(value: "\(value)", unit: "°C", size: 22)
+            }
+            EUSlider(value: Binding(get: { value }, set: set), bounds: bounds, step: 1)
+            HStack {
+                Text("\(bounds.lowerBound)°C")
+                Spacer()
+                Text("\(bounds.upperBound)°C")
+            }
+            .font(EU.font(11))
+            .foregroundStyle(EU.fg4)
         }
     }
 }

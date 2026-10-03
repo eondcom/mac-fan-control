@@ -4,9 +4,10 @@ import Foundation
 //   version        헬퍼 버전 출력
 //   auto           모든 팬을 시스템 자동으로
 //   set <rpm>      모든 팬을 수동 + 목표 rpm (각 팬의 최소~최대로 자름)
-// 다른 SMC 키는 쓸 수 없다.
+//   lowpower <0|1> macOS 저전력 모드 끄기·켜기 (pmset lowpowermode)
+// 다른 SMC 키·pmset 설정은 쓸 수 없다.
 
-let helperVersion = "1"
+let helperVersion = "2"
 
 func fail(_ msg: String, _ code: Int32 = 1) -> Never {
     FileHandle.standardError.write((msg + "\n").data(using: .utf8)!)
@@ -19,6 +20,19 @@ guard let cmd = args.first else { fail("usage: version | auto | set <rpm>", 64) 
 if cmd == "version" {
     print(helperVersion)
     exit(0)
+}
+
+// 저전력 모드 — 암호 없이 자동 전환하려고 헬퍼가 pmset을 대신 부른다. 값은 0·1만 받는다.
+if cmd == "lowpower" {
+    guard args.count == 2, let v = args.last, v == "0" || v == "1" else { fail("usage: lowpower <0|1>", 64) }
+    // setuid 헬퍼는 실제 사용자 ID가 그대로라 pmset이 거부한다 — root로 맞춘다.
+    guard setuid(0) == 0 else { fail("setuid failed", 2) }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+    p.arguments = ["-a", "lowpowermode", v]
+    do { try p.run() } catch { fail("pmset failed", 3) }
+    p.waitUntilExit()
+    exit(p.terminationStatus == 0 ? 0 : 3)
 }
 
 guard SMC.shared.open() else { fail("SMC open failed", 2) }
@@ -52,5 +66,5 @@ case ("set", 2):
     exit(ok ? 0 : 3)
 
 default:
-    fail("usage: version | auto | set <rpm>", 64)
+    fail("usage: version | auto | set <rpm> | lowpower <0|1>", 64)
 }
