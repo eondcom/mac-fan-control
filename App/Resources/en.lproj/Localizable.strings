@@ -151,6 +151,7 @@
 "끄기" = "Turn Off";
 "외장 모니터 연결 시 자동으로 끄기" = "Turn off when an external display connects";
 "모니터를 뽑거나 앱을 끄면 내장 화면이 다시 켜집니다" = "The built-in screen comes back when the display is unplugged or the app quits";
+"화면이 안 나오면 ⌃⌥⌘B — 내장 화면이 바로 켜집니다" = "No picture? Press ⌃⌥⌘B to turn the built-in screen back on";
 "주 화면" = "Main";
 "글자 %d%%" = "Text %d%%";
 "부하 큼" = "Heavy";

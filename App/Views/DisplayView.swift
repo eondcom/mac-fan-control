@@ -131,6 +131,9 @@ struct DisplayView: View {
                             Text("모니터를 뽑거나 앱을 끄면 내장 화면이 다시 켜집니다")
                                 .font(EU.font(11.5))
                                 .foregroundStyle(EU.fg3)
+                            Text("화면이 안 나오면 ⌃⌥⌘B — 내장 화면이 바로 켜집니다")
+                                .font(EU.font(11.5))
+                                .foregroundStyle(EU.fg3)
                         }
                     }
                     .toggleStyle(.eu)

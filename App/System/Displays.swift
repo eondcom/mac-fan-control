@@ -1,6 +1,12 @@
 import Foundation
 import CoreGraphics
 import AppKit
+import Carbon.HIToolbox
+import IOKit
+import os
+
+/// `log stream --predicate 'subsystem == "com.eond.macfancontrol"'`로 본다.
+private let log = Logger(subsystem: "com.eond.macfancontrol", category: "display")
 
 /// 화면 하나 — 연결된 모니터 정보
 struct DisplayInfo: Identifiable, Equatable {
@@ -10,6 +16,8 @@ struct DisplayInfo: Identifiable, Equatable {
     let isMain: Bool
     /// 내장 화면을 꺼둔 상태 (연결은 돼 있지만 그리지 않음)
     let isDisabled: Bool
+    /// 절전으로 잠든 상태 — 꺼둔 것과 다르다
+    let isAsleep: Bool
     let current: DisplayModeInfo?
     let modes: [DisplayModeInfo]
     /// 패널 원래 픽셀 폭 — 배율과 부하를 따지는 기준
@@ -128,7 +136,9 @@ enum DisplayService {
                 name: name(of: id),
                 isBuiltin: CGDisplayIsBuiltin(id) != 0,
                 isMain: id == mainID,
-                isDisabled: CGDisplayIsActive(id) == 0,
+                // CGDisplayIsActive는 잠든 화면도 0을 돌려주므로 절전과 끔을 따로 본다.
+                isDisabled: CGDisplayIsActive(id) == 0 && CGDisplayIsAsleep(id) == 0,
+                isAsleep: CGDisplayIsAsleep(id) != 0,
                 current: CGDisplayCopyDisplayMode(id).map(info),
                 modes: modes,
                 nativeWidth: native))
@@ -235,6 +245,18 @@ enum DisplayService {
         return CGCompleteDisplayConfiguration(config, .forSession) == .success
     }
 
+    // MARK: 사용자 입력
+
+    /// 마지막 키보드·마우스 입력 후 지난 시간 (초) — 권한 없이 읽힌다.
+    static func idleSeconds() -> Double? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOHIDSystem"))
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        guard let value = IORegistryEntryCreateCFProperty(service, "HIDIdleTime" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? NSNumber else { return nil }
+        return value.doubleValue / 1_000_000_000
+    }
+
     // MARK: WindowServer 부하
 
     /// 화면을 그리는 WindowServer의 CPU 사용률 (%)
@@ -272,6 +294,12 @@ final class DisplayState: ObservableObject {
     private var loadTimer: Timer?
     private var externalCount = 0
 
+    /// 화면이 절전 중 — 이때 오는 구성 변경은 무시한다 (외장 모니터가 잠들면서 빠졌다 들어오기 때문).
+    private var screensAsleep = false
+    private var wakeWatch: Timer?
+    private var wakeCheck: DispatchWorkItem?
+    private var hotKey: EventHotKeyRef?
+
     init() {
         refresh()
         refreshLinks()
@@ -284,6 +312,19 @@ final class DisplayState: ObservableObject {
             let state = Unmanaged<DisplayState>.fromOpaque(info).takeUnretainedValue()
             Task { @MainActor in state.scheduleRefresh() }
         }, me)
+
+        let ws = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.screensDidSleepNotification, NSWorkspace.willSleepNotification] {
+            ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.screensWentToSleep() }
+            }
+        }
+        for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.didWakeNotification] {
+            ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.scheduleWakeCheck() }
+            }
+        }
+        registerRescueHotKey()
 
         // 앱이 꺼진 뒤 내장 화면이 꺼진 채 남지 않도록 다시 켠다.
         NotificationCenter.default.addObserver(
@@ -299,6 +340,11 @@ final class DisplayState: ObservableObject {
 
     private var activeExternalCount: Int {
         displays.filter { !$0.isBuiltin && !$0.isDisabled }.count
+    }
+
+    /// 지금 실제로 그림이 나가고 있는 외장 모니터 수
+    private var awakeExternalCount: Int {
+        displays.filter { !$0.isBuiltin && !$0.isDisabled && !$0.isAsleep }.count
     }
 
     /// 화면별 색상 프로필 — 지금 쓰는 것과 후보
@@ -336,6 +382,8 @@ final class DisplayState: ObservableObject {
     }
 
     private func afterReconfigure() {
+        // 절전 중에 화면 구성을 바꾸면 깨어날 화면이 꼬인다 — 깨어난 뒤 한꺼번에 처리한다.
+        if screensAsleep { return }
         refresh()
         refreshLinks()
         let count = activeExternalCount
@@ -343,12 +391,127 @@ final class DisplayState: ObservableObject {
         // 안전장치: 켜진 화면이 하나도 없으면 내장 화면을 되살린다.
         if count == 0, let b = builtin, b.isDisabled {
             DisplayService.setEnabled(true, b.id)
+            builtinOffByUs = false
             refresh()
         } else if count > externalCount {
             // 외장 모니터가 새로 연결됐을 때만 자동으로 끈다 — 직접 켠 내장 화면은 그대로 둔다.
             applyAutoOff()
         }
         externalCount = activeExternalCount
+    }
+
+    // MARK: 절전에서 깨어나기
+
+    private func screensWentToSleep() {
+        log.notice("절전 진입 — 내장 꺼짐: \(self.builtin?.isDisabled == true), 앱이 끔: \(self.builtinOffByUs)")
+        screensAsleep = true
+        wakeCheck?.cancel()
+        // 내장 화면을 꺼둔 채 잠들었을 때만 입력을 지켜본다.
+        guard builtin?.isDisabled == true || builtinOffByUs else { return }
+        wakeWatch?.invalidate()
+        wakeWatch = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.watchInputWhileAsleep() }
+        }
+    }
+
+    /// 마우스·키보드를 건드렸는데도 화면이 깨어났다는 알림이 없으면 직접 확인한다.
+    private func watchInputWhileAsleep() {
+        guard screensAsleep, let idle = DisplayService.idleSeconds(), idle < 1.5 else { return }
+        log.notice("절전 중 입력 감지 (idle \(idle, format: .fixed(precision: 1))s)")
+        scheduleWakeCheck()
+    }
+
+    private func scheduleWakeCheck() {
+        log.notice("깨어남 — 1초 뒤 외장 모니터 신호 다시 잡기")
+        wakeWatch?.invalidate()
+        wakeWatch = nil
+        wakeCheck?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in self?.afterWake() }
+        }
+        wakeCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
+    }
+
+    private func afterWake() {
+        screensAsleep = false
+        refresh()
+        refreshLinks()
+        for d in displays {
+            log.notice("확인: \(d.name, privacy: .public) 내장=\(d.isBuiltin) 꺼짐=\(d.isDisabled) 잠듦=\(d.isAsleep)")
+        }
+        if let b = builtin, b.isDisabled || builtinOffByUs {
+            // 내장 화면을 끈 채 깨어나면 macOS는 외장 모니터가 켜졌다고 보지만 실제로는 검은 화면일 때가 있다.
+            // 내장 화면을 켜서 화면 구성을 다시 하면 외장 모니터가 신호를 다시 잡는다 — 잡히면 다시 끈다.
+            log.notice("깨어남 — 내장 화면을 잠깐 켜서 외장 모니터 신호를 다시 잡습니다")
+            enableBuiltinTimed(b.id)
+            builtinOffByUs = false
+            refreshAfterChange()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                Task { @MainActor in self?.reapplyOffAfterWake() }
+            }
+        } else if activeExternalCount > externalCount {
+            log.notice("외장 모니터 새로 잡힘 — 자동 끄기 적용")
+            applyAutoOff()
+        }
+        externalCount = activeExternalCount
+    }
+
+    /// 깨어난 뒤 외장 모니터가 그림을 내보내고 있으면 내장 화면을 다시 끈다.
+    private func reapplyOffAfterWake() {
+        refresh()
+        guard !screensAsleep, awakeExternalCount > 0, let b = builtin, !b.isDisabled else {
+            log.error("외장 모니터가 안 돌아옴 — 내장 화면을 켜 둡니다")
+            return
+        }
+        log.notice("외장 모니터 확인 — 내장 화면을 다시 끕니다")
+        setBuiltin(enabled: false)
+    }
+
+    /// 화면 구성 변경은 몇 초씩 걸릴 수 있어 걸린 시간을 남긴다.
+    private func enableBuiltinTimed(_ id: CGDirectDisplayID) {
+        let start = Date()
+        let ok = DisplayService.setEnabled(true, id)
+        log.notice("내장 화면 켜기 — \(ok ? "성공" : "실패", privacy: .public), \(Date().timeIntervalSince(start), format: .fixed(precision: 1))초")
+    }
+
+    private var lastRescue = Date.distantPast
+
+    /// 내장 화면을 이 앱이 껐는지 — 잠든 동안엔 상태를 읽어도 믿기 어려워 따로 기억한다.
+    private var builtinOffByUs = false
+
+    // MARK: 비상 단축키 — 화면이 하나도 안 나올 때
+
+    /// ⌃⌥⌘B — 화면이 안 보여도 누르면 내장 화면이 켜진다. 손쉬운 사용 권한이 필요 없다.
+    private func registerRescueHotKey() {
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        let me = Unmanaged.passUnretained(self).toOpaque()
+        InstallEventHandler(GetApplicationEventTarget(), { _, _, info in
+            guard let info else { return noErr }
+            let state = Unmanaged<DisplayState>.fromOpaque(info).takeUnretainedValue()
+            Task { @MainActor in state.rescueBuiltin() }
+            return noErr
+        }, 1, &spec, me, nil)
+        let id = EventHotKeyID(signature: OSType(0x4D46_4342), id: 1) // 'MFCB'
+        RegisterEventHotKey(UInt32(kVK_ANSI_B), UInt32(controlKey | optionKey | cmdKey),
+                            id, GetApplicationEventTarget(), 0, &hotKey)
+    }
+
+    func rescueBuiltin() {
+        // 여러 번 누르면 화면 구성이 겹쳐 더 늦어진다 — 5초 안의 반복은 무시한다.
+        guard Date().timeIntervalSince(lastRescue) > 5 else {
+            log.notice("비상 단축키 반복 — 무시")
+            return
+        }
+        lastRescue = Date()
+        log.notice("비상 단축키 ⌃⌥⌘B — 내장 화면을 켭니다")
+        screensAsleep = false
+        wakeWatch?.invalidate()
+        wakeWatch = nil
+        guard let b = builtin else { return }
+        enableBuiltinTimed(b.id)
+        builtinOffByUs = false
+        refreshAfterChange()
     }
 
     private func applyAutoOff() {
@@ -362,7 +525,10 @@ final class DisplayState: ObservableObject {
             lastError = tr("외장 모니터가 없어 내장 화면을 끌 수 없습니다")
             return
         }
-        lastError = DisplayService.setEnabled(enabled, b.id) ? nil : tr("화면 설정을 바꾸지 못했습니다")
+        let ok = DisplayService.setEnabled(enabled, b.id)
+        log.notice("내장 화면 \(enabled ? "켜기" : "끄기", privacy: .public) — \(ok ? "성공" : "실패", privacy: .public)")
+        if ok { builtinOffByUs = !enabled }
+        lastError = ok ? nil : tr("화면 설정을 바꾸지 못했습니다")
         refreshAfterChange()
     }
 
