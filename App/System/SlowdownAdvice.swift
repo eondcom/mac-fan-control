@@ -79,7 +79,8 @@ enum SlowdownAdvice {
             title: tr("CPU 속도 제한"),
             detail: speedLimit.map { trf("지금 CPU 속도 %d%% · 최근 24시간 제한 %d번. 하드웨어 보호용이라 강제로 끌 수 없고, 원인을 없애야 풀립니다.", $0, throttleEvents) }
                 ?? tr("하드웨어 보호용이라 강제로 끌 수 없고, 원인을 없애야 풀립니다."),
-            fixes: [tr("위의 배터리·충전기·포트 항목부터 확인"),
+            fixes: [tr("온도가 정상인데 깎였다면 — 완전히 종료했다가 켜기, 그래도 안 되면 SMC 재설정"),
+                    tr("위의 배터리·충전기·포트 항목부터 확인"),
                     tr("성능 탭 모니터링을 켜 두고 하루 뒤 기록을 비교")]))
 
         list.append(SlowdownCause(
