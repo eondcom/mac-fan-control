@@ -480,3 +480,18 @@
 "사용 모드" = "Usage Mode";
 "사용자 지정" = "Custom";
 "팬이나 전원 모드를 직접 바꿔 사용자 지정 상태입니다. 모드를 고르면 한 번에 맞춰집니다." = "You've changed the fan or power mode yourself, so this is a custom setup. Pick a mode to set everything at once.";
+
+/* 내 설정 */
+"내 설정" = "My Settings";
+"직접 맞춰 둔 설정으로 돌아갑니다" = "Returns to the settings you tuned yourself";
+"저전력" = "Low Power";
+"macOS 자동 팬" = "macOS automatic fan";
+"%@ 팬%@" = "%@ fan%@";
+" 고정" = " fixed";
+"%@ 모드 · %@" = "%@ mode · %@";
+"변경됨" = "Changed";
+"지금 설정을 내 설정으로 저장" = "Save Current Settings as My Settings";
+"내 설정 — %@" = "My Settings — %@";
+"팬이나 전원을 직접 바꿨습니다. 다른 모드로 넘어가면 지금 상태가 '내 설정'으로 저장돼 언제든 돌아올 수 있습니다." = "You changed the fan or power yourself. Switching to another mode saves this state as My Settings so you can come back anytime.";
+"팬이나 전원을 직접 맞추면 '내 설정'으로 저장됩니다" = "Tune the fan or power yourself and it's saved as My Settings";
+"변경됨 — 다른 모드로 가면 내 설정에 저장" = "Changed — saved to My Settings when you switch";
