@@ -52,6 +52,7 @@ struct FanControlView: View {
 
             BoostSettings()
             ThermalGuardSettings()
+            FanCalibrationCard(cal: state.calibrator)
 
             Text("앱을 종료하면 팬은 시스템 자동으로 돌아갑니다.")
                 .font(EU.font(11.5))
@@ -352,6 +353,21 @@ private struct BoostSettings: View {
 
                 EUDivider()
 
+                Toggle(isOn: $state.throttleFanProtect) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text("속도 제한이 걸리면 팬을 시스템에 맡기기").font(EU.font(13, .semibold))
+                            if state.throttleOverride { EUChip(text: "작동 중", tone: .warning) }
+                        }
+                        Text("팬을 낮게 두면 CPU 온도가 정상이어도 전원부가 데워져 속도가 깎일 수 있습니다. 깎이면 4초 안에 macOS 자동 팬으로 넘기고, 1분 넘게 풀려 있으면 구간 제어로 돌아옵니다")
+                            .font(EU.font(11.5))
+                            .foregroundStyle(EU.fg3)
+                    }
+                }
+                .toggleStyle(.eu)
+
+                EUDivider()
+
                 Toggle(isOn: Binding(get: { state.boostEnabled }, set: { state.setBoostEnabled($0) })) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("뜨거우면 다음 구간으로 1시간").font(EU.font(13, .semibold))
@@ -420,6 +436,9 @@ private struct ThermalGuardSettings: View {
                         state.setGuardTemps(off: $0)
                     }
                 }
+
+                EUDivider()
+                ThrottleHistoryPanel(log: state.throttleLog)
             }
         }
     }
@@ -440,6 +459,209 @@ private struct ThermalGuardSettings: View {
             }
             .font(EU.font(11))
             .foregroundStyle(EU.fg4)
+        }
+    }
+}
+
+/// 스로틀 기록과 추천 온도 — 실제로 속도 제한이 걸린 온도를 보고 켜는 온도를 맞춘다.
+private struct ThrottleHistoryPanel: View {
+    @ObservedObject var log: ThrottleLog
+    @EnvironmentObject var state: AppState
+
+    private static let timeFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MM-dd HH:mm"
+        return f
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("스로틀 기록").font(EU.font(13, .semibold))
+                EUChip(text: trf("열 %d · 전원 %d", log.thermalCount, log.powerCount))
+                Spacer()
+                if !log.records.isEmpty {
+                    Button(tr("기록 지우기")) { log.clear() }
+                        .buttonStyle(.eu(.light, small: true))
+                }
+            }
+
+            if let f = log.fanRecommendation {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(trf("추천 팬 하한 — %@ rpm 이상", f.rpm.formatted()))
+                            .font(EU.font(12.5, .semibold))
+                        Spacer()
+                        Button(tr("구간 하한에 적용")) { state.applyFanFloor(f.rpm) }
+                            .buttonStyle(.eu(.solid, small: true))
+                            .disabled(FanZone.allCases.allSatisfy { state.zoneRange($0).lowerBound >= f.rpm })
+                    }
+                    Text(trf("팬을 제어하다 속도 제한이 걸린 적 %d번, 그때 팬은 최고 %@ rpm 이었습니다. 300 rpm 여유를 두었습니다. 모든 구간의 하한을 이 값 이상으로 올립니다.",
+                             f.basis, f.highest.formatted()))
+                        .font(EU.font(11.5))
+                        .foregroundStyle(EU.fg3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if let r = log.recommendation {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(trf("추천 — 켜는 온도 %d°C · 끄는 온도 %d°C", r.on, r.off))
+                            .font(EU.font(12.5, .semibold))
+                        Spacer()
+                        Button(tr("추천값 적용")) { state.applyGuardRecommendation() }
+                            .buttonStyle(.eu(.solid, small: true))
+                            .disabled(r.on == state.guardOnTemp && r.off == state.guardOffTemp)
+                    }
+                    Text(trf("열 때문인 스로틀 %d번 — 시작 온도 최저 %d°C, 가운데 %d°C. 대부분보다 먼저 켜지도록 하위 20%% 지점에서 3°C 낮췄습니다.",
+                             r.basis, r.lowest, r.median))
+                        .font(EU.font(11.5))
+                        .foregroundStyle(EU.fg3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Toggle(isOn: $state.guardAutoRecommend) {
+                        Text("새 기록이 쌓이면 추천값 자동 적용").font(EU.font(12))
+                    }
+                    .toggleStyle(.eu)
+                }
+            } else {
+                Text(trf("열 때문인 스로틀이 %d번 쌓이면 그 온도를 보고 켜는 온도를 추천합니다 (지금 %d번). 이 기록은 v2.3.2부터 쌓입니다.",
+                         ThrottleLog.minBasis, log.thermalCount))
+                    .font(EU.font(11.5))
+                    .foregroundStyle(EU.fg3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if log.powerCount > 0 {
+                Text(trf("온도가 정상인데 걸린 스로틀 %d번은 전원·배터리 원인이라 자동 절전으로 막을 수 없습니다 — 성능 탭의 속도 저하 진단을 보세요.", log.powerCount))
+                    .font(EU.font(11.5))
+                    .foregroundStyle(EU.warningFg)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ForEach(log.records.prefix(5)) { r in
+                HStack(spacing: 8) {
+                    Text(Self.timeFormat.string(from: r.start))
+                        .font(EU.font(11.5)).monospacedDigit().foregroundStyle(EU.fg3)
+                    EUChip(text: r.isThermal ? "열" : "전원", tone: r.isThermal ? .warning : .neutral)
+                    Text(trf("시작 %.0f°C · 직전 최고 %.0f°C", r.startTemp, r.peakBefore))
+                        .font(EU.font(11.5)).monospacedDigit()
+                    if let rpm = r.fanRPM {
+                        Text(trf("팬 %@ rpm%@", rpm.formatted(), r.fanControlled == true ? tr(" (앱 제어)") : ""))
+                            .font(EU.font(11.5)).monospacedDigit()
+                            .foregroundStyle(r.fanControlled == true ? EU.warningFg : EU.fg3)
+                    }
+                    Spacer()
+                    Text(trf("최저 속도 %d%%", r.minSpeed))
+                        .font(EU.font(11.5)).monospacedDigit().foregroundStyle(EU.fg3)
+                }
+            }
+        }
+    }
+}
+
+/// 팬·전원 부하 테스트 — 속도 제한이 팬 때문인지 전원 때문인지 가르고, 팬 때문이면 추천 하한을 구한다.
+private struct FanCalibrationCard: View {
+    @ObservedObject var cal: FanCalibrator
+    @EnvironmentObject var state: AppState
+    @State private var confirm = false
+
+    var body: some View {
+        EUCard(padding: 20) {
+            VStack(alignment: .leading, spacing: 12) {
+                EUCardHeader(title: "팬·전원 부하 테스트", icon: "gauge.with.needle") {
+                    if cal.isRunning { EUChip(text: "측정 중", tone: .warning) }
+                }
+                Text("CPU에 부하를 걸고 ① 팬 최대에서 속도가 깎이는지 보고(깎이면 전원·배터리 원인), ② 팬을 4,500 rpm 부터 300 rpm 씩 내리며 깎이는 지점을 찾아 추천 팬 하한을 계산합니다. 5~7분 걸리고 팬 소리가 커집니다.")
+                    .font(EU.font(11.5))
+                    .foregroundStyle(EU.fg3)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if cal.isRunning {
+                    progress
+                } else {
+                    if let b = cal.blocker(state) {
+                        Text(b).font(EU.font(11.5)).foregroundStyle(EU.warningFg)
+                    }
+                    Button {
+                        confirm = true
+                    } label: {
+                        Label(cal.result == nil ? "테스트 시작" : "다시 측정", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.eu(.solid, small: true))
+                    .disabled(cal.blocker(state) != nil)
+                }
+
+                if let m = cal.message {
+                    Text(m).font(EU.font(11.5)).foregroundStyle(EU.fg3)
+                }
+                if let r = cal.result, !cal.isRunning {
+                    EUDivider()
+                    resultView(r)
+                }
+            }
+        }
+        .confirmationDialog(tr("부하 테스트를 시작할까요?"), isPresented: $confirm, titleVisibility: .visible) {
+            Button(tr("시작")) { cal.start(state) }
+        } message: {
+            Text("5~7분 동안 CPU를 최대로 쓰고 팬이 크게 돕니다. 무거운 작업은 끝내고 시작하세요. 언제든 취소할 수 있고, CPU가 95°C에 닿으면 자동으로 멈춥니다.")
+        }
+    }
+
+    private var progress: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Text(cal.phase == .maxCheck ? tr("① 팬 최대에서 확인") : tr("② 팬 단계적으로 낮추기"))
+                    .font(EU.font(12.5, .semibold))
+                Spacer()
+                Button(tr("취소")) { cal.cancel() }
+                    .buttonStyle(.eu(.light, small: true))
+            }
+            HStack(spacing: 14) {
+                stat(tr("팬 목표"), cal.targetRPM.map { "\($0.formatted()) rpm" } ?? "—")
+                stat(tr("CPU"), cal.lastTemp.map { String(format: "%.0f°C", $0) } ?? "—")
+                stat(tr("CPU 속도"), cal.lastSpeed.map { "\($0)%" } ?? "—")
+                stat(tr("다음 단계까지"), trf("%.0f초", cal.stepRemaining))
+            }
+            Text(trf("경과 %d분 %d초", Int(cal.elapsed) / 60, Int(cal.elapsed) % 60))
+                .font(EU.font(11)).foregroundStyle(EU.fg4).monospacedDigit()
+        }
+    }
+
+    private func stat(_ k: String, _ v: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(k).font(EU.font(11)).foregroundStyle(EU.fg3)
+            Text(v).font(EU.font(13, .semibold)).monospacedDigit()
+        }
+    }
+
+    @ViewBuilder
+    private func resultView(_ r: FanCalibrator.Result) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(trf("마지막 측정 · %@", r.date.formatted(date: .abbreviated, time: .shortened)))
+                .font(EU.font(11)).foregroundStyle(EU.fg4)
+            if r.powerLimited {
+                Text("전원·배터리 원인 — 팬과 무관합니다").font(EU.font(13, .semibold)).foregroundStyle(EU.warningFg)
+                Text(trf("팬을 최대로 돌려도(최고 %.0f°C) 부하가 걸리자 속도가 깎였습니다. 팬 하한을 올려도 막을 수 없습니다. 배터리 건강도·충전기를 확인하세요 (성능 탭 → 속도 저하 진단).", r.maxTemp))
+                    .font(EU.font(11.5)).foregroundStyle(EU.fg3)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let rpm = r.throttleRPM {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(trf("추천 팬 하한 %@ rpm", r.recommended.formatted()))
+                        .font(EU.font(13, .semibold))
+                    Spacer()
+                    Button(tr("구간 하한에 적용")) { state.applyFanFloor(r.recommended) }
+                        .buttonStyle(.eu(.solid, small: true))
+                        .disabled(FanZone.allCases.allSatisfy { state.zoneRange($0).lowerBound >= r.recommended })
+                }
+                Text(r.hitTempLimit
+                     ? trf("%@ rpm 에서 CPU가 95°C에 닿아 멈췄습니다. 300 rpm 여유를 두었습니다.", rpm.formatted())
+                     : trf("%@ rpm 에서 속도 제한이 걸렸습니다. 300 rpm 여유를 두었습니다.", rpm.formatted()))
+                    .font(EU.font(11.5)).foregroundStyle(EU.fg3)
+            } else {
+                Text("최저 rpm 까지 속도 제한이 없었습니다 — 팬 하한 제한이 필요 없습니다")
+                    .font(EU.font(13, .semibold)).foregroundStyle(EU.successFg)
+            }
         }
     }
 }
