@@ -8,8 +8,8 @@ options:
 
 settings:
   base:
-    MARKETING_VERSION: "2.2.1"
-    CURRENT_PROJECT_VERSION: "7"
+    MARKETING_VERSION: "2.3.0"
+    CURRENT_PROJECT_VERSION: "8"
     SWIFT_VERSION: "5.9"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
@@ -38,7 +38,7 @@ targets:
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         LSUIElement: true
         NSHumanReadableCopyright: "© 2026 eond.com"
-        NSAppleEventsUsageDescription: "전원 모드 변경에 관리자 권한이 필요합니다."
+        NSAppleEventsUsageDescription: "전원 모드 변경과 시작 프로그램(로그인 항목) 목록·빼기에 사용합니다."
     dependencies:
       - sdk: ServiceManagement.framework
       - target: MacFanSMC

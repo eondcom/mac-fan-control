@@ -27,7 +27,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>전원 모드 변경에 관리자 권한이 필요합니다.</string>
+	<string>전원 모드 변경과 시작 프로그램(로그인 항목) 목록·빼기에 사용합니다.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 eond.com</string>
 </dict>
