@@ -66,6 +66,38 @@ struct PerformanceView: View {
                     .disabled(!perf.enabled)
                     .padding(.vertical, 8)
                 }
+                EUDivider()
+                EUListRow {
+                    Toggle(isOn: $perf.lowerHogs) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("CPU를 오래 쓰는 앱 우선순위 낮추기")
+                            Text("한 앱이 1분 넘게 CPU 50% 이상을 쓰면 그 앱을 뒤로 미뤄 다른 작업을 먼저 돌립니다. 지금 쓰는 앱은 건드리지 않습니다")
+                                .font(EU.font(11.5))
+                                .foregroundStyle(EU.fg3)
+                        }
+                    }
+                    .toggleStyle(.eu)
+                    .padding(.vertical, 8)
+                }
+                ForEach(perf.lowered.sorted { $0.key < $1.key }, id: \.key) { pid, name in
+                    EUDivider()
+                    EUListRow {
+                        HStack(spacing: 8) {
+                            Image(systemName: "tortoise")
+                                .foregroundStyle(EU.fg3)
+                            Text(name)
+                                .font(EU.font(12.5, .medium))
+                                .lineLimit(1)
+                            Text("우선순위 낮춤")
+                                .font(EU.font(11.5))
+                                .foregroundStyle(EU.fg3)
+                            Spacer()
+                            Button(tr("되돌리기")) { perf.restore(pid) }
+                                .buttonStyle(.eu(.light, small: true))
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
             }
             .font(EU.font(13))
         }

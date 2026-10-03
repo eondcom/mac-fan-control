@@ -299,3 +299,23 @@
 "코어" = " cores";
 "앱 %@ · 압축 %@ · 캐시 %@ · 스왑 %@" = "App %@ · Compressed %@ · Cached %@ · Swap %@";
 "온도·팬·CPU·메모리 상태를 실시간으로 보여줍니다" = "Live temperature, fan, CPU and memory status";
+
+/* 스로틀 전 자동 절전·선제 팬·원인 앱 낮추기 */
+"스로틀 전 자동 절전" = "Auto Low Power Before Throttling";
+"뜨거우면 저전력 모드로" = "Switch to Low Power When Hot";
+"CPU가 켜는 온도 이상으로 %d초 이어지면 저전력 모드로 터보를 낮추고, 끄는 온도 아래로 %d분 식으면 되돌립니다" = "If the CPU stays above the on-temperature for %d seconds, Low Power Mode tames Turbo Boost; it switches back after %d minutes below the off-temperature";
+"팬 제어 도우미를 설치해야 암호 없이 자동으로 바뀝니다" = "Install the fan helper to switch automatically without a password";
+"켜는 온도" = "On at";
+"끄는 온도" = "Off below";
+"저전력 모드로 전환했습니다" = "Switched to Low Power Mode";
+"CPU가 %.0f°C로 뜨거워 속도 제한이 걸리기 전에 터보를 낮췄습니다. %d°C 아래로 식으면 되돌립니다." = "The CPU hit %.0f°C, so Turbo Boost was lowered before throttling kicks in. It switches back below %d°C.";
+"기본 모드로 되돌렸습니다" = "Back to Normal Mode";
+"CPU가 %.0f°C로 식어 원래 성능으로 돌아왔습니다." = "The CPU cooled to %.0f°C, so full performance is back.";
+"부하가 오르면 팬 미리 올리기" = "Spin Up Fans When Load Rises";
+"작동 중" = "Active";
+"온도는 CPU 부하보다 몇 초 늦게 오릅니다. 부하가 50% 넘으면 미리 팬을 올려 온도 정점을 낮춥니다 (구간 상한은 넘지 않음)" = "Temperature lags CPU load by a few seconds. Above 50% load the fans ramp early to shave the peak (never above the zone cap)";
+"CPU를 오래 쓰는 앱 우선순위 낮추기" = "Deprioritize Apps Hogging the CPU";
+"한 앱이 1분 넘게 CPU 50% 이상을 쓰면 그 앱을 뒤로 미뤄 다른 작업을 먼저 돌립니다. 지금 쓰는 앱은 건드리지 않습니다" = "If an app uses over 50% CPU for more than a minute, it is moved to the background so everything else runs first. The app you're using is never touched";
+"우선순위 낮춤" = "Deprioritized";
+"%@의 우선순위를 낮췄습니다" = "Deprioritized %@";
+"1분 넘게 CPU %.0f%%를 써서 다른 앱이 먼저 돌도록 했습니다. 이 앱을 앞으로 가져오거나 CPU 사용이 줄면 되돌립니다." = "It used %.0f%% CPU for over a minute, so other apps now run first. It's restored when you bring it to the front or its CPU use drops.";

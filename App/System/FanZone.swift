@@ -86,6 +86,13 @@ enum FanCurve {
     static let maxStepUp = 400
     static let maxStepDown = 150
 
+    /// 선제 팬 — 온도는 부하보다 몇 초 늦게 오르므로, 부하가 높으면 그만큼 더 뜨겁다고 보고 미리 올린다.
+    static func leadTemp(load: Double) -> Double {
+        if load >= 70 { return 8 }
+        if load >= 50 { return 4 }
+        return 0
+    }
+
     static func target(temp: Double, lower: Int, cap: Int, previous: Int?) -> Int {
         let frac = min(max((temp - coolTemp) / (warmTemp - coolTemp), 0), 1)
         var rpm = Double(lower) + frac * Double(cap - lower)
