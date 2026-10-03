@@ -28,10 +28,19 @@ jobs:
             -scheme MacFanControl \
             -configuration Release \
             -derivedDataPath build \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Check universal binary
+        run: |
+          for f in build/Build/Products/Release/MacFanControl.app/Contents/MacOS/*; do
+            [ -f "$f" ] || continue
+            lipo "$f" -verify_arch arm64 x86_64 || { echo "::error::$f is not universal"; exit 1; }
+          done
 
       - name: Create DMG
         run: |
