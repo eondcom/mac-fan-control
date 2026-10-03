@@ -4,7 +4,7 @@ import Foundation
 enum FanHelper {
     static let installedPath = "/Library/PrivilegedHelperTools/com.eond.macfancontrol.smc"
     /// Helper/main.swift의 helperVersion과 같아야 한다.
-    static let expectedVersion = "2"
+    static let expectedVersion = "3"
 
     enum Status { case ready, missing, outdated }
 
