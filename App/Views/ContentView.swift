@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum AppTab: String, CaseIterable, Identifiable {
-    case dashboard, fan, battery, display, performance, settings
+    case dashboard, fan, battery, display, performance, startup, settings
     var id: String { rawValue }
 
     var title: String {
@@ -11,6 +11,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         case .battery:   return tr("배터리")
         case .display:   return tr("모니터")
         case .performance: return tr("성능")
+        case .startup:   return tr("시작 프로그램")
         case .settings:  return tr("설정")
         }
     }
@@ -22,6 +23,7 @@ enum AppTab: String, CaseIterable, Identifiable {
         case .battery:   return "battery.75"
         case .display:   return "display"
         case .performance: return "waveform.path.ecg"
+        case .startup:   return "power.circle"
         case .settings:  return "gearshape"
         }
     }
@@ -51,6 +53,7 @@ struct ContentView: View {
                     case .battery:   BatteryView()
                     case .display:   DisplayView()
                     case .performance: PerformanceView()
+                    case .startup:   StartupView()
                     case .settings:  SettingsView()
                     }
                 }
