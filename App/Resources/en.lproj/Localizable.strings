@@ -468,3 +468,15 @@
 "팬을 제어하다 속도 제한이 걸린 적 %d번, 그때 팬은 최고 %@ rpm 이었습니다. 300 rpm 여유를 두었습니다. 모든 구간의 하한을 이 값 이상으로 올립니다." = "Speed was limited %d times while the fan was app-controlled, at up to %@ rpm. A 300 rpm margin was added. Raises every zone's floor to at least this value.";
 "팬 %@ rpm%@" = "Fan %@ rpm%@";
 " (앱 제어)" = " (app-controlled)";
+
+/* 사용 모드 */
+"조용함" = "Quiet";
+"균형" = "Balanced";
+"시스템 기본" = "System Default";
+"브라우저·터미널·문서 — 저전력 모드, 저음 팬" = "Browser, terminal, documents — Low Power Mode, quiet fan";
+"평소 — 기본 모드, 일반 팬, 뜨거우면 자동 절전" = "Everyday — Normal mode, normal fan, auto Low Power when hot";
+"빌드·영상 — 기본 모드, 고속 팬" = "Builds & video — Normal mode, fast fan";
+"macOS 에 맡김 — 앱이 팬을 건드리지 않음" = "Leave it to macOS — the app doesn't touch the fan";
+"사용 모드" = "Usage Mode";
+"사용자 지정" = "Custom";
+"팬이나 전원 모드를 직접 바꿔 사용자 지정 상태입니다. 모드를 고르면 한 번에 맞춰집니다." = "You've changed the fan or power mode yourself, so this is a custom setup. Pick a mode to set everything at once.";

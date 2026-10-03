@@ -21,6 +21,8 @@ struct DashboardView: View {
                 PowerThrottleBanner(speed: s)
             }
 
+            UsageProfileCard()
+
             HStack(spacing: 12) {
                 tempCard(title: "CPU",    icon: "cpu",              temp: state.thermal.cpuTemp)
                 tempCard(title: "GPU",    icon: "square.stack.3d.up", temp: state.thermal.gpuTemp)

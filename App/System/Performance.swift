@@ -262,6 +262,11 @@ final class PerfMonitor: ObservableObject {
     init() {
         load()
         reschedule()
+        // 사용 모드가 정한 원인 앱 낮추기 값
+        NotificationCenter.default.addObserver(forName: .usageProfileLowerHogs, object: nil, queue: .main) { [weak self] n in
+            guard let on = n.object as? Bool else { return }
+            MainActor.assumeIsolated { if self?.lowerHogs != on { self?.lowerHogs = on } }
+        }
         // 앱이 꺼져도 낮춘 우선순위가 남지 않게 되돌린다.
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: nil

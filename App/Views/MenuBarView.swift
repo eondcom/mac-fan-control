@@ -31,6 +31,9 @@ struct MenuBarView: View {
                 tempTile("배터리", state.thermal.batteryTemp)
             }
 
+            // 사용 모드 — 전원·팬·기능을 한 번에
+            UsageProfileSeg()
+
             // 팬 빠른 전환 — 고르면 바로 적용
             EUSeg(selection: Binding(
                     get: { state.fanMode == .system ? "auto" : state.fanZone.rawValue },
