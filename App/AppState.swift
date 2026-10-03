@@ -65,6 +65,21 @@ final class AppState: ObservableObject {
     @AppStorage("guard_enabled") var guardEnabled: Bool = false
     @AppStorage("guard_on_temp")  var guardOnTemp: Int = 85
     @AppStorage("guard_off_temp") var guardOffTemp: Int = 70
+    /// 스로틀 기록으로 계산한 추천 온도를 자동으로 적용
+    @AppStorage("guard_auto_recommend") var guardAutoRecommend: Bool = false
+    /// 팬을 제어하다 속도 제한이 걸리면 바로 시스템 자동에 맡긴다.
+    @AppStorage("throttle_fan_protect") var throttleFanProtect: Bool = true
+    @Published private(set) var throttleOverride = false
+    private var lastSpeed: Int?
+    private var fanThrottleSince: Date?
+    private var fanThrottleClearSince: Date?
+
+    /// 팬·전원 부하 테스트 — 도는 동안 구간 제어·자동 절전·속도 제한 보호를 멈춘다.
+    let calibrator = FanCalibrator()
+    @Published private(set) var calibrating = false
+
+    /// 스로틀이 걸린 순간의 온도 기록 — 추천값의 근거
+    let throttleLog = ThrottleLog()
     /// 이 앱이 켠 저전력 모드 — 사용자가 직접 켠 건 되돌리지 않는다.
     @Published private(set) var guardActive = UserDefaults.standard.bool(forKey: "guard_active") {
         didSet { UserDefaults.standard.set(guardActive, forKey: "guard_active") }
@@ -112,7 +127,8 @@ final class AppState: ObservableObject {
         // 앱 없이 팬이 낮게 고정된 채 남지 않도록 종료 시 시스템 자동으로 돌려둔다.
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: nil
-        ) { _ in
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.calibrator.emergencyStop() }
             Thermal.resetFanAuto()
         }
 
@@ -173,11 +189,15 @@ final class AppState: ObservableObject {
                 // 같은 값을 다시 넣어도 모든 화면이 다시 그려지므로 바뀔 때만 넣는다.
                 if self.thermal != t { self.thermal = t }
                 // 한 번 튀는 건 반만 반영
+                self.lastSpeed = speed
                 let smoothed = self.cpuLoad * 0.5 + load * 0.5
                 if abs(smoothed - self.cpuLoad) >= 1 { self.cpuLoad = smoothed }
                 self.controlStep()
                 self.guardStep()
                 self.powerThrottleStep(speed: speed)
+                self.throttleLog.step(speed: speed, temp: t.cpuTemp, fanRPM: t.fanRPM,
+                                      fanControlled: self.fanMode == .zone && !self.safetyOverride && !self.throttleOverride)
+                self.applyRecommendationIfAuto()
             }
         }
     }
@@ -307,6 +327,7 @@ final class AppState: ObservableObject {
         pendingApply?.cancel()
         fanTarget = nil
         safetyOverride = false
+        throttleOverride = false
         fanQueue.async { [weak self] in
             Thermal.resetFanAuto()
             Task { @MainActor in self?.refreshThermal() }
@@ -366,7 +387,7 @@ final class AppState: ObservableObject {
 
     /// 2초마다(또는 설정이 바뀌면 바로) 목표 rpm을 계산해 SMC에 쓴다.
     func controlStep(force: Bool = false) {
-        guard fanMode == .zone else { return }
+        guard fanMode == .zone, !calibrating else { return }
         let temp = max(thermal.cpuTemp ?? 0, thermal.gpuTemp ?? 0)
 
         // 과열 안전장치
@@ -381,6 +402,35 @@ final class AppState: ObservableObject {
         if safetyOverride {
             guard temp <= FanCurve.resumeTemp else { return }
             safetyOverride = false
+        }
+
+        // 속도 제한 보호 — 팬이 낮아 깎이면 4초 안에 시스템 자동으로, 1분 넘게 풀려 있으면 돌아온다.
+        if throttleFanProtect, let s = lastSpeed {
+            let now = Date()
+            if s < 100 {
+                fanThrottleClearSince = nil
+                let since = fanThrottleSince ?? now
+                fanThrottleSince = since
+                if !throttleOverride, now.timeIntervalSince(since) >= 4 {
+                    throttleOverride = true
+                    fanTarget = nil
+                    fanQueue.async { Thermal.resetFanAuto() }
+                    Notifier.post(id: "throttle-fan", title: tr("속도 제한이 걸려 팬을 시스템에 맡겼습니다"),
+                                  body: trf("CPU 속도 %d%%. 속도가 1분 넘게 돌아오면 다시 구간 제어로 돌아옵니다. 자주 생기면 팬 제어 탭의 추천 하한을 적용하세요.", s))
+                }
+            } else {
+                fanThrottleSince = nil
+                if throttleOverride {
+                    let since = fanThrottleClearSince ?? now
+                    fanThrottleClearSince = since
+                    guard now.timeIntervalSince(since) >= 60 else { return }
+                    throttleOverride = false
+                    fanThrottleClearSince = nil
+                }
+            }
+            if throttleOverride { return }
+        } else if throttleOverride {
+            throttleOverride = false
         }
 
         let boosted = updateBoost(temp: temp)
@@ -409,6 +459,7 @@ final class AppState: ObservableObject {
     var fanModeLabel: String {
         if fanMode == .system { return tr("시스템 자동") }
         if safetyOverride { return tr("과열 보호") }
+        if throttleOverride { return tr("속도 제한 보호") }
         if let b = boostZone { return trf("%@ · 임시", b.label) }
         return fanFixed ? trf("%@ · 고정", fanZone.label) : trf("%@ · 자동", fanZone.label)
     }
@@ -417,6 +468,7 @@ final class AppState: ObservableObject {
     var menuBarSymbol: String {
         if fanMode == .system { return "fan.badge.automatic" }
         if safetyOverride { return "exclamationmark.triangle.fill" }
+        if throttleOverride { return "fan.badge.automatic" }
         return activeZone.icon
     }
 
@@ -519,7 +571,7 @@ final class AppState: ObservableObject {
 
     /// 2초마다 — CPU 온도가 켜는 온도 이상으로 30초 이어지면 저전력 모드, 끄는 온도 아래로 2분이면 되돌린다.
     private func guardStep() {
-        guard guardEnabled, !guardSwitching, let temp = thermal.cpuTemp else {
+        guard guardEnabled, !guardSwitching, !calibrating, let temp = thermal.cpuTemp else {
             guardHotSince = nil
             guardCoolSince = nil
             return
@@ -583,6 +635,47 @@ final class AppState: ObservableObject {
     }
 
     /// 끄는 온도는 켜는 온도보다 5°C 이상 낮게
+    func beginCalibration() {
+        calibrating = true
+        fanTarget = nil
+    }
+
+    /// 끝나면 원래 팬 제어로 — 구간 제어면 다시 적용, 아니면 시스템 자동
+    func endCalibration() {
+        calibrating = false
+        if fanMode == .zone {
+            scheduleApply()
+        } else {
+            fanQueue.async { Thermal.resetFanAuto() }
+        }
+    }
+
+    /// 추천 팬 하한을 모든 구간의 하한으로 — 이미 더 높은 구간은 그대로
+    func applyFanFloor(_ rpm: Int) {
+        // setZoneBounds 는 지금 구간이면 구간 제어로 바꾸므로 원래 모드를 지킨다.
+        let mode = fanMode
+        defer { fanMode = mode }
+        for z in FanZone.allCases {
+            let r = zoneRange(z)
+            guard r.lowerBound < rpm else { continue }
+            setZoneBounds(z, lower: rpm, upper: max(r.upperBound, rpm + 100))
+        }
+        if mode == .zone { scheduleApply() }
+    }
+
+    /// 추천값 적용 — 버튼 또는 자동
+    func applyGuardRecommendation() {
+        guard let r = throttleLog.recommendation else { return }
+        guardOnTemp = r.on
+        guardOffTemp = r.off
+    }
+
+    private func applyRecommendationIfAuto() {
+        guard guardAutoRecommend, let r = throttleLog.recommendation,
+              r.on != guardOnTemp || r.off != guardOffTemp else { return }
+        applyGuardRecommendation()
+    }
+
     func setGuardTemps(on: Int? = nil, off: Int? = nil) {
         if let on { guardOnTemp = on; guardOffTemp = min(guardOffTemp, on - 5) }
         if let off { guardOffTemp = min(off, guardOnTemp - 5) }

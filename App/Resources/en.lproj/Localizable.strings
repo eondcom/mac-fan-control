@@ -417,3 +417,54 @@
 "맥을 종료합니다." = "Shut down the Mac.";
 "왼쪽 Shift + 왼쪽 Control + 왼쪽 Option 과 전원 버튼을 함께 10초 누릅니다." = "Hold left Shift + left Control + left Option and the power button together for 10 seconds.";
 "모두 떼고 전원 버튼을 눌러 켭니다." = "Release all keys and press the power button to turn it on.";
+
+/* 스로틀 기록·추천 */
+"스로틀 기록" = "Throttle History";
+"열 %d · 전원 %d" = "Heat %d · Power %d";
+"추천 — 켜는 온도 %d°C · 끄는 온도 %d°C" = "Suggested — on at %d°C · off below %d°C";
+"추천값 적용" = "Apply Suggestion";
+"열 때문인 스로틀 %d번 — 시작 온도 최저 %d°C, 가운데 %d°C. 대부분보다 먼저 켜지도록 하위 20%% 지점에서 3°C 낮췄습니다." = "%d heat throttles — lowest start %d°C, median %d°C. Set 3°C below the 20th percentile so it kicks in before most of them.";
+"새 기록이 쌓이면 추천값 자동 적용" = "Apply suggestions automatically as history grows";
+"열 때문인 스로틀이 %d번 쌓이면 그 온도를 보고 켜는 온도를 추천합니다 (지금 %d번). 이 기록은 v2.3.2부터 쌓입니다." = "Once %d heat throttles are recorded, an on-temperature is suggested from them (now %d). Recording starts in v2.3.2.";
+"온도가 정상인데 걸린 스로틀 %d번은 전원·배터리 원인이라 자동 절전으로 막을 수 없습니다 — 성능 탭의 속도 저하 진단을 보세요." = "%d throttles happened at normal temperatures — a power or battery cause that auto low power can't prevent. See Slowdown Diagnosis in the Performance tab.";
+"열" = "Heat";
+"시작 %.0f°C · 직전 최고 %.0f°C" = "Start %.0f°C · prior peak %.0f°C";
+"최저 속도 %d%%" = "Min speed %d%%";
+
+/* 팬·전원 부하 테스트 */
+"팬 제어 도우미를 먼저 설치하세요" = "Install the fan helper first";
+"충전기를 연결하세요 — 배터리로는 원래 속도가 깎일 수 있어 결과가 틀립니다" = "Connect a charger — on battery the CPU may be limited anyway, so the result would be wrong";
+"전원 모드를 '기본'으로 바꾸세요 — 절전 모드는 일부러 속도를 낮춥니다" = "Switch the power mode to Normal — Low Power Mode lowers speed on purpose";
+"측정을 취소했습니다" = "Test canceled";
+"팬·전원 부하 테스트" = "Fan & Power Load Test";
+"측정 중" = "Testing";
+"CPU에 부하를 걸고 ① 팬 최대에서 속도가 깎이는지 보고(깎이면 전원·배터리 원인), ② 팬을 4,500 rpm 부터 300 rpm 씩 내리며 깎이는 지점을 찾아 추천 팬 하한을 계산합니다. 5~7분 걸리고 팬 소리가 커집니다." = "Puts load on the CPU and ① checks whether speed drops even at maximum fan (if so, it's power or battery), then ② lowers the fan from 4,500 rpm in 300 rpm steps to find where it drops and suggests a minimum fan speed. Takes 5–7 minutes and the fan gets loud.";
+"테스트 시작" = "Start Test";
+"다시 측정" = "Test Again";
+"부하 테스트를 시작할까요?" = "Start the load test?";
+"시작" = "Start";
+"5~7분 동안 CPU를 최대로 쓰고 팬이 크게 돕니다. 무거운 작업은 끝내고 시작하세요. 언제든 취소할 수 있고, CPU가 95°C에 닿으면 자동으로 멈춥니다." = "For 5–7 minutes the CPU runs at full load and the fan spins up. Finish heavy work first. You can cancel anytime, and it stops automatically if the CPU reaches 95°C.";
+"① 팬 최대에서 확인" = "① Checking at maximum fan";
+"② 팬 단계적으로 낮추기" = "② Lowering the fan step by step";
+"취소" = "Cancel";
+"팬 목표" = "Fan target";
+"다음 단계까지" = "Next step in";
+"%.0f초" = "%.0fs";
+"경과 %d분 %d초" = "Elapsed %dm %ds";
+"마지막 측정 · %@" = "Last test · %@";
+"전원·배터리 원인 — 팬과 무관합니다" = "Power or battery cause — not the fan";
+"팬을 최대로 돌려도(최고 %.0f°C) 부하가 걸리자 속도가 깎였습니다. 팬 하한을 올려도 막을 수 없습니다. 배터리 건강도·충전기를 확인하세요 (성능 탭 → 속도 저하 진단)." = "Even at maximum fan (peak %.0f°C), speed dropped as soon as load started. Raising the fan floor can't prevent it. Check battery health and the charger (Performance tab → Slowdown Diagnosis).";
+"추천 팬 하한 %@ rpm" = "Suggested fan floor %@ rpm";
+"구간 하한에 적용" = "Apply to Zone Floors";
+"%@ rpm 에서 CPU가 95°C에 닿아 멈췄습니다. 300 rpm 여유를 두었습니다." = "Stopped at %@ rpm when the CPU reached 95°C. A 300 rpm margin was added.";
+"%@ rpm 에서 속도 제한이 걸렸습니다. 300 rpm 여유를 두었습니다." = "Speed was limited at %@ rpm. A 300 rpm margin was added.";
+"최저 rpm 까지 속도 제한이 없었습니다 — 팬 하한 제한이 필요 없습니다" = "No speed limit down to the minimum rpm — no fan floor needed";
+"속도 제한이 걸리면 팬을 시스템에 맡기기" = "Hand the Fan to macOS When Speed Is Limited";
+"팬을 낮게 두면 CPU 온도가 정상이어도 전원부가 데워져 속도가 깎일 수 있습니다. 깎이면 4초 안에 macOS 자동 팬으로 넘기고, 1분 넘게 풀려 있으면 구간 제어로 돌아옵니다" = "With a low fan, the power circuitry can heat up and limit speed even at normal CPU temperatures. When limited, the fan goes to macOS automatic within 4 seconds and returns to zone control after a minute without limits";
+"속도 제한이 걸려 팬을 시스템에 맡겼습니다" = "Speed limited — fan handed to macOS";
+"CPU 속도 %d%%. 속도가 1분 넘게 돌아오면 다시 구간 제어로 돌아옵니다. 자주 생기면 팬 제어 탭의 추천 하한을 적용하세요." = "CPU speed %d%%. Zone control resumes after speed is back for over a minute. If this happens often, apply the suggested floor in the Fan Control tab.";
+"속도 제한 보호" = "Speed-limit protection";
+"추천 팬 하한 — %@ rpm 이상" = "Suggested fan floor — %@ rpm or more";
+"팬을 제어하다 속도 제한이 걸린 적 %d번, 그때 팬은 최고 %@ rpm 이었습니다. 300 rpm 여유를 두었습니다. 모든 구간의 하한을 이 값 이상으로 올립니다." = "Speed was limited %d times while the fan was app-controlled, at up to %@ rpm. A 300 rpm margin was added. Raises every zone's floor to at least this value.";
+"팬 %@ rpm%@" = "Fan %@ rpm%@";
+" (앱 제어)" = " (app-controlled)";
