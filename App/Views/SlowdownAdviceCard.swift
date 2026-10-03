@@ -61,6 +61,10 @@ struct SlowdownAdviceCard: View {
                     .font(EU.font(12))
                 }
             }
+            if c.kind == .throttle && c.active {
+                ThrottleActions()
+                    .padding(.top, 4)
+            }
         }
         .padding(.vertical, 2)
     }

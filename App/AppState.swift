@@ -37,6 +37,14 @@ final class AppState: ObservableObject {
     /// 지금 부하 때문에 팬을 미리 올린 만큼 (°C 환산)
     @Published private(set) var preemptLead: Double = 0
     private let loadMeter = CPULoadMeter()
+
+    /// 온도는 정상인데 CPU 속도가 깎인 상태 — 전원·배터리 원인 (값은 지금 속도 %)
+    @Published private(set) var powerThrottle: Int?
+    private var powerThrottleSince: Date?
+    private var powerThrottleClearSince: Date?
+    private var powerThrottleNotified = Date.distantPast
+    static let powerThrottleLimit = 70
+    static let powerThrottleSustain: TimeInterval = 60
     /// 구간별 상한(구간 자동) · 고정값(구간 고정)
     @Published private(set) var zoneCaps: [FanZone: Int] = [:]
     @Published private(set) var zoneFixedRPM: [FanZone: Int] = [:]
@@ -160,6 +168,7 @@ final class AppState: ObservableObject {
             let t = Thermal.read().smoothed
             guard let self else { return }
             let load = self.loadMeter.sample()
+            let speed = PerfService.speedLimit()
             await MainActor.run {
                 // 같은 값을 다시 넣어도 모든 화면이 다시 그려지므로 바뀔 때만 넣는다.
                 if self.thermal != t { self.thermal = t }
@@ -168,6 +177,7 @@ final class AppState: ObservableObject {
                 if abs(smoothed - self.cpuLoad) >= 1 { self.cpuLoad = smoothed }
                 self.controlStep()
                 self.guardStep()
+                self.powerThrottleStep(speed: speed)
             }
         }
     }
@@ -473,6 +483,36 @@ final class AppState: ObservableObject {
     func setBoostEnabled(_ on: Bool) {
         boostEnabled = on
         if on { Notifier.requestAuthorization() } else { cancelBoost() }
+    }
+
+    // MARK: 온도와 무관한 속도 제한 감지
+
+    /// CPU 가 80°C 아래인데 속도 제한이 70% 아래로 1분 이어지면 전원·배터리 원인으로 본다.
+    private func powerThrottleStep(speed: Int?) {
+        let now = Date()
+        let cool = (thermal.cpuTemp ?? 0) < 80
+        if let s = speed, s < Self.powerThrottleLimit, cool {
+            powerThrottleClearSince = nil
+            let since = powerThrottleSince ?? now
+            powerThrottleSince = since
+            guard now.timeIntervalSince(since) >= Self.powerThrottleSustain else { return }
+            if powerThrottle != s { powerThrottle = s }
+            if now.timeIntervalSince(powerThrottleNotified) >= 2 * 3600 {
+                powerThrottleNotified = now
+                Notifier.post(id: "power-throttle", title: trf("CPU 속도가 %d%%로 제한됐습니다", s),
+                              body: tr("온도는 정상이라 전원·배터리 쪽 원인입니다. 완전히 종료했다가 켜거나 SMC 재설정을 해 보세요."))
+            }
+        } else {
+            powerThrottleSince = nil
+            guard powerThrottle != nil else { return }
+            // 잠깐 풀린 것으로 끄지 않는다 — 30초 넘게 정상이어야 해제
+            let since = powerThrottleClearSince ?? now
+            powerThrottleClearSince = since
+            if now.timeIntervalSince(since) >= 30 {
+                powerThrottle = nil
+                powerThrottleClearSince = nil
+            }
+        }
     }
 
     // MARK: 스로틀 전 자동 절전

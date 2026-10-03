@@ -122,6 +122,10 @@ struct SettingsView: View {
                 }
             }
 
+            section("문제 해결") {
+                TroubleshootRows()
+            }
+
             section("정보") {
                 EUListRow {
                     HStack {
