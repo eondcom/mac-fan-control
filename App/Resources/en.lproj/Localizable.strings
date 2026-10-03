@@ -319,3 +319,19 @@
 "우선순위 낮춤" = "Deprioritized";
 "%@의 우선순위를 낮췄습니다" = "Deprioritized %@";
 "1분 넘게 CPU %.0f%%를 써서 다른 앱이 먼저 돌도록 했습니다. 이 앱을 앞으로 가져오거나 CPU 사용이 줄면 되돌립니다." = "It used %.0f%% CPU for over a minute, so other apps now run first. It's restored when you bring it to the front or its CPU use drops.";
+
+/* 앱 안에서 업데이트 */
+"내려받지 못했습니다" = "Couldn't download the update";
+"DMG를 열지 못했습니다" = "Couldn't open the DMG";
+"받은 파일이 올바른 앱이 아닙니다" = "The downloaded file isn't a valid MacFanControl app";
+"이 위치의 앱은 자동으로 바꿀 수 없습니다" = "This copy of the app can't be replaced automatically";
+"새 앱을 준비하지 못했습니다" = "Couldn't prepare the new app";
+"업데이트하지 못했습니다" = "Update failed";
+"릴리스 노트" = "Release Notes";
+"내려받는 중" = "Downloading";
+"내려받는 중…" = "Downloading…";
+"설치 중" = "Installing";
+"업데이트 실패 — 다시 시도" = "Update failed — try again";
+"v%@로 업데이트" = "Update to v%@";
+"새 버전을 받아 설치하고 앱을 다시 실행합니다" = "Downloads and installs the new version, then relaunches the app";
+"v%@을 내려받아 설치하고 다시 실행합니다" = "Downloads and installs v%@, then relaunches";

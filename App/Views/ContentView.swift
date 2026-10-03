@@ -140,16 +140,29 @@ private struct Sidebar: View {
             .background(EU.c1, in: RoundedRectangle(cornerRadius: EU.rRow + 2, style: .continuous))
 
             if let r = state.latestRelease {
-                Link(destination: r.tagURL) {
+                let l = state.updateActionLabel
+                Button {
+                    state.installUpdate()
+                } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "arrow.down.circle.fill")
-                        Text(trf("v%@ 업데이트", r.version))
+                        if state.isInstallingUpdate {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: l.icon)
+                        }
+                        Text(l.title)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                     .font(EU.font(12, .semibold))
                     .foregroundStyle(eu.fg)
                     .frame(maxWidth: .infinity, minHeight: EU.z(30))
                     .background(eu.flat, in: RoundedRectangle(cornerRadius: EU.rRow, style: .continuous))
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(state.isInstallingUpdate)
+                .help(trf("v%@을 내려받아 설치하고 다시 실행합니다", r.version))
                 .padding(.top, 6)
             }
         }
