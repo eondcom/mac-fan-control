@@ -2,12 +2,14 @@ import SwiftUI
 
 struct DashboardView: View {
     @EnvironmentObject var state: AppState
+    @EnvironmentObject var perf: PerfMonitor
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            EUPageHeader(title: "대시보드", subtitle: "온도·팬·전원 상태를 5초마다 갱신합니다") {
+            EUPageHeader(title: "대시보드", subtitle: "온도·팬·CPU·메모리 상태를 실시간으로 보여줍니다") {
                 Button {
                     state.refreshAll()
+                    perf.refreshNow()
                 } label: {
                     Label("새로고침", systemImage: "arrow.clockwise")
                 }
@@ -21,11 +23,24 @@ struct DashboardView: View {
                 tempCard(title: "배터리", icon: "battery.75",        temp: state.thermal.batteryTemp)
             }
 
+            if let s = perf.latest {
+                HStack(alignment: .top, spacing: 12) {
+                    CPUUsageCard(sample: s)
+                    MemoryUsageCard(sample: s)
+                }
+                HStack(alignment: .top, spacing: 12) {
+                    TopAppsCard(title: "CPU를 많이 쓰는 앱", icon: "list.number", apps: s.top, metric: .cpu, limit: 3)
+                    TopAppsCard(title: "메모리를 많이 쓰는 앱", icon: "memorychip", apps: s.topMemory, metric: .memory, limit: 3)
+                }
+            }
+
             HStack(alignment: .top, spacing: 12) {
                 fanCard()
                 PowerModeCard()
             }
         }
+        .onAppear { perf.startLive() }
+        .onDisappear { perf.stopLive() }
     }
 
     // MARK: - temp card

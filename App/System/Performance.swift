@@ -13,6 +13,20 @@ struct ProcSample: Codable, Hashable, Identifiable {
     var id: Int32 { pid }
 }
 
+/// 메모리 사용량 — 활성 상태 보기와 같은 셈법 (MB)
+struct MemoryUsage {
+    let totalMB: Int
+    /// 앱 메모리 + 고정 + 압축
+    let usedMB: Int
+    let appMB: Int
+    let wiredMB: Int
+    let compressedMB: Int
+    /// 파일 캐시 — 필요하면 바로 비워지므로 사용량에 넣지 않는다.
+    let cachedMB: Int
+
+    var usedRatio: Double { totalMB > 0 ? Double(usedMB) / Double(totalMB) : 0 }
+}
+
 /// 한 번 잰 시스템 상태
 struct PerfSample {
     let date: Date
@@ -20,10 +34,13 @@ struct PerfSample {
     let cpuBusy: Double
     /// 1 정상 · 2 경고 · 4 위험
     let memoryPressure: Int
+    let memory: MemoryUsage?
     let swapUsedMB: Int
     /// 100 미만이면 발열·전원 때문에 CPU 속도가 깎인 상태
     let speedLimit: Int?
     let top: [ProcSample]
+    /// 메모리를 많이 쓰는 순
+    let topMemory: [ProcSample]
 }
 
 /// 느려진 순간 하나 — 이어지는 동안은 한 건으로 묶는다.
@@ -85,6 +102,27 @@ enum PerfService {
         return Int(level)
     }
 
+    static func memoryUsage() -> MemoryUsage? {
+        var info = vm_statistics64()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return nil }
+        let page = UInt64(vm_kernel_page_size)
+        func mb(_ pages: UInt64) -> Int { Int(pages * page / 1_048_576) }
+        let purgeable = UInt64(info.purgeable_count)
+        let app = mb(UInt64(info.internal_page_count) - min(purgeable, UInt64(info.internal_page_count)))
+        let wired = mb(UInt64(info.wire_count))
+        let compressed = mb(UInt64(info.compressor_page_count))
+        return MemoryUsage(totalMB: Int(ProcessInfo.processInfo.physicalMemory / 1_048_576),
+                           usedMB: app + wired + compressed, appMB: app, wiredMB: wired,
+                           compressedMB: compressed,
+                           cachedMB: mb(UInt64(info.external_page_count) + purgeable))
+    }
+
     static func swapUsedMB() -> Int {
         var usage = xsw_usage()
         var size = MemoryLayout<xsw_usage>.size
@@ -113,24 +151,27 @@ enum PerfService {
 
     // MARK: 프로세스
 
-    static func topProcesses(_ n: Int = 5) -> [ProcSample] {
-        let out = Shell.run("/bin/ps", ["-Ac", "-r", "-o", "pid=,pcpu=,rss=,comm="])
-        var result: [ProcSample] = []
+    /// ps 한 번으로 CPU 순·메모리 순을 같이 뽑는다.
+    static func topProcesses(_ n: Int = 5) -> (cpu: [ProcSample], memory: [ProcSample]) {
+        let out = Shell.run("/bin/ps", ["-Ac", "-o", "pid=,pcpu=,rss=,comm="])
+        var all: [ProcSample] = []
         for line in out.split(separator: "\n") {
             let f = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
             guard f.count == 4, let pid = Int32(f[0]), let cpu = Double(f[1]), let rss = Int(f[2]) else { continue }
             let name = f[3].trimmingCharacters(in: .whitespaces)
             // ps 자신은 잴 때마다 잡히므로 뺀다.
             if name == "ps" { continue }
-            result.append(ProcSample(pid: pid, name: name, cpu: cpu, memMB: rss / 1024))
-            if result.count == n { break }
+            all.append(ProcSample(pid: pid, name: name, cpu: cpu, memMB: rss / 1024))
         }
-        return result
+        return (Array(all.sorted { $0.cpu > $1.cpu }.prefix(n)),
+                Array(all.sorted { $0.memMB > $1.memMB }.prefix(n)))
     }
 
     static func sample() -> PerfSample {
-        PerfSample(date: Date(), cpuBusy: cpuBusy(), memoryPressure: memoryPressure(),
-                   swapUsedMB: swapUsedMB(), speedLimit: speedLimit(), top: topProcesses())
+        let top = topProcesses()
+        return PerfSample(date: Date(), cpuBusy: cpuBusy(), memoryPressure: memoryPressure(),
+                          memory: memoryUsage(), swapUsedMB: swapUsedMB(), speedLimit: speedLimit(),
+                          top: top.cpu, topMemory: top.memory)
     }
 }
 
@@ -144,10 +185,12 @@ final class PerfMonitor: ObservableObject {
     static let hogThreshold = 50.0
     static let swapJumpMB = 256
 
+    /// 백그라운드 기록 — 꺼져 있어도 대시보드·성능 탭을 보는 동안은 잰다.
     @Published var enabled: Bool = UserDefaults.standard.bool(forKey: "perf_enabled") {
         didSet {
             UserDefaults.standard.set(enabled, forKey: "perf_enabled")
-            enabled ? start() : stop()
+            if !enabled { resetRecording() }
+            reschedule()
         }
     }
     /// 한 프로그램이 1분 넘게 CPU를 많이 쓰면 알림
@@ -166,14 +209,20 @@ final class PerfMonitor: ObservableObject {
     @Published private(set) var offenders: [Offender] = []
 
     private var timer: Timer?
-    private var busyStreak = 0
+    private var timerInterval: TimeInterval = 0
+    /// 지금 CPU·메모리를 보여주는 화면 수
+    private var viewers = 0
+    /// CPU를 많이 쓰기 시작한 때 — 재는 간격이 바뀌어도 시간으로 판정한다.
+    private var busySince: Date?
     private var lastSwapMB: Int?
     private var current: SlowEvent?
-    /// 이름별로 CPU를 많이 쓴 연속 횟수와 마지막 알림 시각
-    private var hogStreak: [String: Int] = [:]
+    /// 이름별로 CPU를 많이 쓰기 시작한 때와 마지막 알림 시각
+    private var hogSince: [String: Date] = [:]
     private var hogNotified: [String: Date] = [:]
 
+    /// 기록만 할 때는 5초, 화면에서 보고 있으면 2초
     private static let interval: TimeInterval = 5
+    private static let liveInterval: TimeInterval = 2
     private static let keep: TimeInterval = 24 * 3600
 
     private let fileURL: URL = {
@@ -185,30 +234,45 @@ final class PerfMonitor: ObservableObject {
 
     init() {
         load()
-        if enabled { start() }
+        reschedule()
     }
 
-    func start() {
-        stop()
-        _ = PerfService.cpuBusy() // 기준점
-        timer = Timer.scheduledTimer(withTimeInterval: Self.interval, repeats: true) { [weak self] _ in
+    /// 화면이 나타날 때 부른다 — 사라질 때 stopLive()와 짝.
+    func startLive() {
+        viewers += 1
+        reschedule()
+    }
+
+    func stopLive() {
+        viewers = max(0, viewers - 1)
+        reschedule()
+    }
+
+    /// 기록 중이거나 보는 화면이 있을 때만 타이머를 돌린다.
+    private func reschedule() {
+        let want: TimeInterval = viewers > 0 ? Self.liveInterval : (enabled ? Self.interval : 0)
+        guard want != timerInterval else { return }
+        timer?.invalidate()
+        timer = nil
+        timerInterval = want
+        guard want > 0 else { return }
+        if latest == nil { _ = PerfService.cpuBusy() } // 기준점
+        timer = Timer.scheduledTimer(withTimeInterval: want, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
         tick()
     }
 
-    func stop() {
-        timer?.invalidate()
-        timer = nil
+    private func resetRecording() {
         closeCurrent()
-        busyStreak = 0
+        busySince = nil
         lastSwapMB = nil
-        hogStreak.removeAll()
+        hogSince.removeAll()
     }
 
-    /// 모니터링 중이면 기다리지 않고 바로 한 번 잰다.
+    /// 재고 있으면 기다리지 않고 바로 한 번 잰다.
     func refreshNow() {
-        if enabled { tick() }
+        if timer != nil { tick() }
     }
 
     func clear() {
@@ -228,11 +292,12 @@ final class PerfMonitor: ObservableObject {
 
     private func handle(_ s: PerfSample) {
         latest = s
+        guard enabled else { return }
 
         var reasons = Set<SlowReason>()
-        busyStreak = s.cpuBusy >= Self.busyThreshold ? busyStreak + 1 : 0
+        busySince = s.cpuBusy >= Self.busyThreshold ? (busySince ?? s.date) : nil
         // 잠깐 튀는 건 빼고 10초 이상 이어질 때만
-        if busyStreak >= 2 { reasons.insert(.cpu) }
+        if let since = busySince, s.date.timeIntervalSince(since) >= 10 { reasons.insert(.cpu) }
         if let l = s.speedLimit, l < 100 { reasons.insert(.throttle) }
         if s.memoryPressure >= 2 { reasons.insert(.memory) }
         if let last = lastSwapMB, s.swapUsedMB - last >= Self.swapJumpMB { reasons.insert(.swap) }
@@ -292,12 +357,11 @@ final class PerfMonitor: ObservableObject {
 
     private func checkHogs(_ s: PerfSample) {
         let hot = Set(s.top.filter { $0.cpu >= Self.hogThreshold }.map(\.name))
-        hogStreak = hogStreak.filter { hot.contains($0.key) }
+        hogSince = hogSince.filter { hot.contains($0.key) }
         for name in hot {
-            let n = (hogStreak[name] ?? 0) + 1
-            hogStreak[name] = n
-            // 5초 × 12 = 1분
-            guard hogAlert, n >= 12 else { continue }
+            let since = hogSince[name] ?? s.date
+            hogSince[name] = since
+            guard hogAlert, s.date.timeIntervalSince(since) >= 60 else { continue }
             if let last = hogNotified[name], Date().timeIntervalSince(last) < 1800 { continue }
             hogNotified[name] = Date()
             let cpu = s.top.first { $0.name == name }?.cpu ?? 0
