@@ -25,6 +25,10 @@ struct DisplayView: View {
                 builtinCard(b)
             }
 
+            if displays.displays.contains(where: { !$0.isBuiltin }) {
+                externalCard
+            }
+
             ForEach(displays.displays.filter { !$0.isDisabled }) { d in
                 resolutionCard(d)
                 colorCard(d)
@@ -134,6 +138,59 @@ struct DisplayView: View {
                             Text("화면이 안 나오면 ⌃⌥⌘B — 내장 화면이 바로 켜집니다")
                                 .font(EU.font(11.5))
                                 .foregroundStyle(EU.fg3)
+                        }
+                    }
+                    .toggleStyle(.eu)
+                    .disabled(displays.chargeOnly)
+                    .padding(.vertical, 8)
+                }
+            }
+            .font(EU.font(13))
+        }
+    }
+
+    // MARK: 외장 모니터
+
+    private var externalCard: some View {
+        EUCard(padding: 0) {
+            VStack(spacing: 0) {
+                ForEach(displays.displays.filter { !$0.isBuiltin }) { d in
+                    EUListRow {
+                        HStack(spacing: 12) {
+                            Image(systemName: d.isDisabled ? "display.trianglebadge.exclamationmark" : "display")
+                                .font(.system(size: EU.z(18)))
+                                .foregroundStyle(d.isDisabled ? EU.fg4 : EU.fg)
+                                .frame(width: EU.z(28))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(d.name)
+                                    .font(EU.font(13, .semibold))
+                                Text(d.isDisabled ? tr("꺼짐 — 연결은 유지(충전은 그대로)") : tr("켜짐"))
+                                    .font(EU.font(11.5))
+                                    .foregroundStyle(EU.fg3)
+                            }
+                            Spacer()
+                            if d.isDisabled {
+                                Button(tr("켜기")) { displays.setExternal(d, enabled: true) }
+                                    .buttonStyle(.eu(.flat, small: true))
+                            } else {
+                                Button(tr("끄기")) { displays.setExternal(d, enabled: false) }
+                                    .buttonStyle(.eu(.light, small: true))
+                                    .disabled(!DisplayService.canToggle)
+                                    .help(tr("내장 화면을 먼저 켠 뒤 이 모니터를 끕니다"))
+                            }
+                        }
+                        .padding(.vertical, 10)
+                    }
+                    EUDivider()
+                }
+                EUListRow {
+                    Toggle(isOn: $displays.chargeOnly) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("외장 모니터를 충전용으로만 쓰기")
+                            Text("모니터를 연결하면 외장 화면을 끄고 내장 화면만 씁니다. USB-C 충전은 그대로 됩니다. 덮개를 닫은 상태에서는 끄지 않습니다")
+                                .font(EU.font(11.5))
+                                .foregroundStyle(EU.fg3)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .toggleStyle(.eu)
