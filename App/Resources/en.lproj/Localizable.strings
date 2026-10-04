@@ -495,3 +495,12 @@
 "팬이나 전원을 직접 바꿨습니다. 다른 모드로 넘어가면 지금 상태가 '내 설정'으로 저장돼 언제든 돌아올 수 있습니다." = "You changed the fan or power yourself. Switching to another mode saves this state as My Settings so you can come back anytime.";
 "팬이나 전원을 직접 맞추면 '내 설정'으로 저장됩니다" = "Tune the fan or power yourself and it's saved as My Settings";
 "변경됨 — 다른 모드로 가면 내 설정에 저장" = "Changed — saved to My Settings when you switch";
+
+/* 외장 모니터 끄기 */
+"꺼짐 — 연결은 유지(충전은 그대로)" = "Off — still connected (charging continues)";
+"내장 화면을 먼저 켠 뒤 이 모니터를 끕니다" = "Turns on the built-in screen first, then turns this display off";
+"외장 모니터를 충전용으로만 쓰기" = "Use External Displays for Charging Only";
+"모니터를 연결하면 외장 화면을 끄고 내장 화면만 씁니다. USB-C 충전은 그대로 됩니다. 덮개를 닫은 상태에서는 끄지 않습니다" = "When a display connects, its screen is turned off and only the built-in screen is used. USB-C charging keeps working. Nothing is turned off while the lid is closed";
+"덮개가 닫혀 있어 외장 모니터를 끌 수 없습니다 — 내장 화면을 켤 수 없습니다" = "Can't turn off the external display with the lid closed — the built-in screen can't come on";
+"내장 화면을 켜지 못해 외장 모니터를 끄지 않았습니다" = "Couldn't turn on the built-in screen, so the external display was left on";
+"켜진 화면이 이것 하나라 끌 수 없습니다" = "This is the only active screen, so it can't be turned off";

@@ -245,6 +245,18 @@ enum DisplayService {
         return CGCompleteDisplayConfiguration(config, .forSession) == .success
     }
 
+    // MARK: 덮개
+
+    /// 맥북 덮개가 닫혀 있으면 내장 화면을 켤 수 없다 — 이때 외장까지 끄면 화면이 모두 꺼진다.
+    static func isLidClosed() -> Bool {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+        guard service != 0 else { return false }
+        defer { IOObjectRelease(service) }
+        let v = IORegistryEntryCreateCFProperty(service, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? Bool
+        return v ?? false
+    }
+
     // MARK: 사용자 입력
 
     /// 마지막 키보드·마우스 입력 후 지난 시간 (초) — 권한 없이 읽힌다.
@@ -290,6 +302,20 @@ final class DisplayState: ObservableObject {
         }
     }
 
+    /// 외장 모니터를 충전용으로만 — 연결되면 외장 화면을 끄고 내장 화면만 쓴다(USB-C 충전은 그대로).
+    @Published var chargeOnly: Bool = UserDefaults.standard.bool(forKey: "display_charge_only") {
+        didSet {
+            UserDefaults.standard.set(chargeOnly, forKey: "display_charge_only")
+            if chargeOnly {
+                autoBuiltinOff = false
+                applyChargeOnly()
+            } else {
+                // 끄면 꺼 둔 외장 화면을 되살린다.
+                for d in displays where !d.isBuiltin && d.isDisabled { setExternal(d, enabled: true) }
+            }
+        }
+    }
+
     private var pendingRefresh: DispatchWorkItem?
     private var loadTimer: Timer?
     private var externalCount = 0
@@ -304,7 +330,7 @@ final class DisplayState: ObservableObject {
         refresh()
         refreshLinks()
         externalCount = activeExternalCount
-        applyAutoOff()
+        applyConnectionRules()
 
         let me = Unmanaged.passUnretained(self).toOpaque()
         CGDisplayRegisterReconfigurationCallback({ _, flags, info in
@@ -332,6 +358,12 @@ final class DisplayState: ObservableObject {
         ) { _ in
             for d in DisplayService.list() where d.isBuiltin && d.isDisabled {
                 DisplayService.setEnabled(true, d.id)
+            }
+            // 충전 전용이 아니면 꺼 둔 외장 화면도 되살린다 — 앱 없이 검은 모니터가 남지 않게.
+            if !UserDefaults.standard.bool(forKey: "display_charge_only") {
+                for d in DisplayService.list() where !d.isBuiltin && d.isDisabled {
+                    DisplayService.setEnabled(true, d.id)
+                }
             }
         }
     }
@@ -394,9 +426,47 @@ final class DisplayState: ObservableObject {
             builtinOffByUs = false
             refresh()
         } else if count > externalCount {
-            // 외장 모니터가 새로 연결됐을 때만 자동으로 끈다 — 직접 켠 내장 화면은 그대로 둔다.
-            applyAutoOff()
+            // 외장 모니터가 새로 연결됐을 때만 자동으로 끈다 — 직접 켠 화면은 그대로 둔다.
+            applyConnectionRules()
         }
+        externalCount = activeExternalCount
+    }
+
+    /// 충전 전용이면 외장을 끄고, 아니면 "외장 연결 시 내장 끄기"
+    private func applyConnectionRules() {
+        if chargeOnly { applyChargeOnly() } else { applyAutoOff() }
+    }
+
+    private func applyChargeOnly() {
+        guard chargeOnly else { return }
+        for d in displays where !d.isBuiltin && !d.isDisabled { setExternal(d, enabled: false) }
+    }
+
+    /// 외장 화면 끄기·켜기 — 끄기 전에 내장 화면을 먼저 켠다. 화면이 하나도 없는 상태는 만들지 않는다.
+    func setExternal(_ d: DisplayInfo, enabled: Bool) {
+        guard !d.isBuiltin else { return }
+        if !enabled {
+            if DisplayService.isLidClosed() {
+                lastError = tr("덮개가 닫혀 있어 외장 모니터를 끌 수 없습니다 — 내장 화면을 켤 수 없습니다")
+                return
+            }
+            if let b = builtin, b.isDisabled {
+                guard DisplayService.setEnabled(true, b.id) else {
+                    lastError = tr("내장 화면을 켜지 못해 외장 모니터를 끄지 않았습니다")
+                    return
+                }
+                builtinOffByUs = false
+            }
+            // 다른 외장이 켜져 있지 않고 내장도 없으면 끄지 않는다.
+            if builtin == nil && activeExternalCount <= 1 {
+                lastError = tr("켜진 화면이 이것 하나라 끌 수 없습니다")
+                return
+            }
+        }
+        let ok = DisplayService.setEnabled(enabled, d.id)
+        log.notice("외장 \(d.name, privacy: .public) \(enabled ? "켜기" : "끄기", privacy: .public) — \(ok ? "성공" : "실패", privacy: .public)")
+        lastError = ok ? nil : tr("화면 설정을 바꾸지 못했습니다")
+        refreshAfterChange()
         externalCount = activeExternalCount
     }
 
@@ -451,8 +521,8 @@ final class DisplayState: ObservableObject {
                 Task { @MainActor in self?.reapplyOffAfterWake() }
             }
         } else if activeExternalCount > externalCount {
-            log.notice("외장 모니터 새로 잡힘 — 자동 끄기 적용")
-            applyAutoOff()
+            log.notice("외장 모니터 새로 잡힘 — 연결 규칙 적용")
+            applyConnectionRules()
         }
         externalCount = activeExternalCount
     }
@@ -515,7 +585,7 @@ final class DisplayState: ObservableObject {
     }
 
     private func applyAutoOff() {
-        guard autoBuiltinOff, activeExternalCount > 0, let b = builtin, !b.isDisabled else { return }
+        guard autoBuiltinOff, !chargeOnly, activeExternalCount > 0, let b = builtin, !b.isDisabled else { return }
         setBuiltin(enabled: false)
     }
 
