@@ -141,8 +141,12 @@ struct DisplayView: View {
                         }
                     }
                     .toggleStyle(.eu)
-                    .disabled(displays.chargeOnly)
                     .padding(.vertical, 8)
+                }
+                EUDivider()
+                EUListRow {
+                    warning
+                        .padding(.vertical, 8)
                 }
             }
             .font(EU.font(13))
@@ -150,6 +154,18 @@ struct DisplayView: View {
     }
 
     // MARK: 외장 모니터
+
+    /// 화면을 연결한 채 꺼 두면(비공개 macOS 기능) 절전에서 깨어날 때 남은 화면까지 검게 남는 경우가 있다 — 2026-10-04 두 번 확인.
+    private var warning: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(EU.warningFg)
+            Text("화면을 연결한 채 꺼 두면 절전에서 깨어날 때 화면이 안 켜질 수 있습니다. 그럴 땐 케이블을 뽑거나 ⌃⌥⌘B 를 누르세요. 충전만 하려면 모니터 전원 버튼으로 끄고 모니터 메뉴의 '대기 중 USB-C 전원 공급'을 켜 두는 쪽이 안전합니다")
+                .font(EU.font(11.5))
+                .foregroundStyle(EU.fg3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 
     private var externalCard: some View {
         EUCard(padding: 0) {
@@ -184,17 +200,8 @@ struct DisplayView: View {
                     EUDivider()
                 }
                 EUListRow {
-                    Toggle(isOn: $displays.chargeOnly) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("외장 모니터를 충전용으로만 쓰기")
-                            Text("모니터를 연결하면 외장 화면을 끄고 내장 화면만 씁니다. USB-C 충전은 그대로 됩니다. 덮개를 닫은 상태에서는 끄지 않습니다")
-                                .font(EU.font(11.5))
-                                .foregroundStyle(EU.fg3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .toggleStyle(.eu)
-                    .padding(.vertical, 8)
+                    warning
+                        .padding(.vertical, 8)
                 }
             }
             .font(EU.font(13))

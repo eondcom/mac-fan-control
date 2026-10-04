@@ -302,20 +302,6 @@ final class DisplayState: ObservableObject {
         }
     }
 
-    /// 외장 모니터를 충전용으로만 — 연결되면 외장 화면을 끄고 내장 화면만 쓴다(USB-C 충전은 그대로).
-    @Published var chargeOnly: Bool = UserDefaults.standard.bool(forKey: "display_charge_only") {
-        didSet {
-            UserDefaults.standard.set(chargeOnly, forKey: "display_charge_only")
-            if chargeOnly {
-                autoBuiltinOff = false
-                applyChargeOnly()
-            } else {
-                // 끄면 꺼 둔 외장 화면을 되살린다.
-                for d in displays where !d.isBuiltin && d.isDisabled { setExternal(d, enabled: true) }
-            }
-        }
-    }
-
     private var pendingRefresh: DispatchWorkItem?
     private var loadTimer: Timer?
     private var externalCount = 0
@@ -330,6 +316,7 @@ final class DisplayState: ObservableObject {
         refresh()
         refreshLinks()
         externalCount = activeExternalCount
+        UserDefaults.standard.removeObject(forKey: "display_charge_only")
         applyConnectionRules()
 
         let me = Unmanaged.passUnretained(self).toOpaque()
@@ -359,11 +346,9 @@ final class DisplayState: ObservableObject {
             for d in DisplayService.list() where d.isBuiltin && d.isDisabled {
                 DisplayService.setEnabled(true, d.id)
             }
-            // 충전 전용이 아니면 꺼 둔 외장 화면도 되살린다 — 앱 없이 검은 모니터가 남지 않게.
-            if !UserDefaults.standard.bool(forKey: "display_charge_only") {
-                for d in DisplayService.list() where !d.isBuiltin && d.isDisabled {
-                    DisplayService.setEnabled(true, d.id)
-                }
+            // 꺼 둔 외장 화면도 되살린다 — 앱 없이 검은 모니터가 남지 않게.
+            for d in DisplayService.list() where !d.isBuiltin && d.isDisabled {
+                DisplayService.setEnabled(true, d.id)
             }
         }
     }
@@ -432,14 +417,10 @@ final class DisplayState: ObservableObject {
         externalCount = activeExternalCount
     }
 
-    /// 충전 전용이면 외장을 끄고, 아니면 "외장 연결 시 내장 끄기"
+    /// 외장 연결 시 규칙 — "외장 연결 시 내장 끄기"
+    /// (v2.4.1 의 "충전 전용"은 2026-10-04 제거: 외장을 연결한 채 꺼 두면 절전에서 깨어날 때 내장 화면까지 검게 남았다)
     private func applyConnectionRules() {
-        if chargeOnly { applyChargeOnly() } else { applyAutoOff() }
-    }
-
-    private func applyChargeOnly() {
-        guard chargeOnly else { return }
-        for d in displays where !d.isBuiltin && !d.isDisabled { setExternal(d, enabled: false) }
+        applyAutoOff()
     }
 
     /// 외장 화면 끄기·켜기 — 끄기 전에 내장 화면을 먼저 켠다. 화면이 하나도 없는 상태는 만들지 않는다.
@@ -585,7 +566,7 @@ final class DisplayState: ObservableObject {
     }
 
     private func applyAutoOff() {
-        guard autoBuiltinOff, !chargeOnly, activeExternalCount > 0, let b = builtin, !b.isDisabled else { return }
+        guard autoBuiltinOff, activeExternalCount > 0, let b = builtin, !b.isDisabled else { return }
         setBuiltin(enabled: false)
     }
 
