@@ -55,7 +55,13 @@ Intel MacBook용 팬 소음·전원 관리 SwiftUI 앱. macOS 13(Ventura)+ 지�
 
 ## 설치 (배포판)
 
-[Releases](../../releases) 페이지에서 DMG 다운로드 후 설치.
+**Homebrew**
+
+```bash
+brew install --cask eondcom/tap/macfancontrol
+```
+
+**DMG**: [Releases](../../releases) 페이지에서 DMG 다운로드 후 설치.
 
 > **처음 실행 시**: 우클릭 → **열기** (Apple 미서명 앱 Gatekeeper 우회)
 
