@@ -16,7 +16,12 @@
 | `App/System/ThrottleLog.swift` | 스로틀 시작 온도·팬 rpm 기록, 열/전원 구분(시작 80°C), 추천 온도·추천 팬 하한 |
 | `App/System/FanCalibrator.swift` | 팬·전원 부하 테스트(팬 최대 30초 → 4500부터 300rpm씩) |
 | `App/System/UsageProfile.swift` · `App/Views/UsageProfileViews.swift` | 사용 모드 5종 + 내 설정 자동 저장 |
-| `.github/workflows/build.yml` | 유니버설(`ARCHS="arm64 x86_64"`) 빌드 + `lipo -verify_arch` 검사, 릴리스 노트 |
+| `.github/workflows/build.yml` | 유니버설(`ARCHS="arm64 x86_64"`) 빌드 + `lipo -verify_arch` 검사, 릴리스 노트, 태그 릴리스 후 brew cask 갱신(`homebrew` 작업, secret `HOMEBREW_TAP_TOKEN`) |
+| [eondcom/homebrew-tap](https://github.com/eondcom/homebrew-tap) | `Casks/macfancontrol.rb` — `brew install eondcom/tap/macfancontrol` |
+| `App/System/Platform.swift` | Intel·Apple Silicon 판별(`hw.optional.arm64`), 모델·칩, 열 상태(`ProcessInfo.thermalState`) |
+| `App/SMC/SMCKeys.swift` `AppleSiliconSensors` | SMC 키 목록(`#KEY` + 인덱스 조회)에서 Tp·Te(M3 계열 Tf0·Tf4) CPU, Tg(Tf1·Tf2) GPU 온도 키를 찾아 평균 |
+| `App/System/Diagnostics.swift` | 설정 → 문제 해결 → 진단 정보 복사(읽기 전용) |
+| `Helper/main.swift` | 도우미 v4 — Ftst 잠금 해제 뒤 F{i}Md 쓰기 최대 3초 재시도. Intel 은 v3 도 통과(`FanHelper.minimumVersion`) |
 
 ## 왜 이렇게 했는가
 - **모니터 절전 복구**: `CGDisplayIsActive` 는 잠든 화면도 0 을 준다 → 절전 중 외장 모니터를 "꺼짐"으로 보고 내장 화면을 켰다 껐다 했다. 그러나 이걸 고친 뒤에도 PA329CRV 는 깨어난 뒤 macOS 상으론 "켜짐·안 잠듦"인데 실제로는 검은 화면이었다(로그로 확인). ⌃⌥⌘B 로 내장 화면을 켜자 외장도 돌아와서, 깨어날 때 자동으로 내장을 잠깐 켰다 끄는 방식으로 감. **이 마지막 방식은 아직 실제 절전 테스트 안 함.**
@@ -28,9 +33,14 @@
 - **이 맥북의 속도 제한은 전원·배터리 원인**(2026-10-04 실측, 배터리 55%·서비스 권장): 팬 6000rpm·70°C 에서도 12코어 부하 10초 만에 90%, 6코어도 83%. 팬 하한으로는 못 막는다.
   저전력 vs 기본(12코어 60초): 처리량 2351 vs 3302(−29%), 제한 없음 vs 평균 75%, 67.7 vs 73.8°C → 성능은 기본, 조용함은 저전력. 23%까지 떨어진 건 전원 관리가 꼬인 상태로, 재부팅(SMC)으로 100% 복귀.
 - **화면을 연결한 채 꺼 두면 절전 후 남은 화면까지 검게 남는다**(2026-10-04 두 번 확인 — 내장 끄기, 외장 끄기). v2.4.1 "외장 충전 전용"은 v2.4.2 에서 제거하고 끄기 버튼에 경고만 남겼다. 케이블을 뽑아야 복구됐다.
+- **Homebrew 공식 cask 대신 자체 tap**: 미서명·미공증 앱이라 공식 cask 는 어렵다. 자체 tap 은 `brew audit --online`·`fetch`·`livecheck` 통과(2026-10-06).
+- **brew 설치 실패는 `--` 가 `—` 로 바뀐 탓**: 사용자 Mac 의 스마트 대시가 타이핑 중에 바꿨다. README·안내는 `--cask` 없이 `brew install eondcom/tap/macfancontrol` 로도 된다고 적음.
+- **Apple Silicon 속도 제한**: `IOPMCopyCPUPowerStatus`(pmset -g therm)는 Intel 에만 값이 있다. 대신 열 상태 '높음' 이상을 제한으로 보고, 속도 % 가 필요한 부하 테스트·스로틀 기록은 숨김. **Apple Silicon 실기기 확인은 아직 안 함** — 이 맥북(Intel)에선 키 목록 읽기(1135개, 0.9초)만 확인.
 - **실측 스크립트**는 세션 스크래치에만 있었다 — 같은 측정은 앱의 부하 테스트로 대신한다.
 
 ## 다음 세션에서 할 일
+0. **Apple Silicon 확인(최우선)**: `741c27f` push + `v2.5.0` 태그 릴리스 → Mac mini(테스터)에서 도우미 설치·팬 구간 선택 → 설정 → 문제 해결 → **진단 정보 복사** 결과를 받아 온도 키·팬 쓰기(`last write ... exit`) 확인. 팬이 안 바뀌면 `F0Md`/`F0md`·`Ftst` 값부터 본다.
+   brew 자동 갱신은 `gh secret set HOMEBREW_TAP_TOKEN -R eondcom/mac-fan-control` 등록 여부부터 확인(`gh secret list -R eondcom/mac-fan-control`).
 1. 내장 화면 끄고 모니터 절전 복구 실제 테스트 — `pmset displaysleepnow` → 10초 뒤 마우스. 로그:
    ```bash
    /usr/bin/log stream --predicate 'subsystem == "com.eond.macfancontrol"'
@@ -41,6 +51,7 @@
 5. `docs/screenshots` 는 v2.1.1 기준 — 대시보드 CPU·메모리, 자동 절전 카드로 교체.
 
 ## 세션 로그
+- **2026-10-06~08**: Homebrew 자체 tap(eondcom/homebrew-tap) 만들고 릴리스 후 cask 자동 갱신 작업 추가. Apple Silicon 지원(온도 키 탐색·열 상태 기반 속도 제한 보호·Intel 전용 기능 숨김·팬 없는 맥·SMC 재설정 안내·도우미 v4)과 진단 정보 복사 구현(`741c27f`). 빌드만 확인, Apple Silicon 실기기 미확인. 릴리스는 안 함.
 - **2026-10-04(마지막)**: v2.4.1 외장 모니터 끄기·충전 전용 → 절전 후 화면 안 켜짐 확인 → v2.4.2 에서 충전 전용 제거·경고. 사용 모드 쇼츠는 Typecast API 크레딧 부족으로 보류(Studio 구독과 API 요금제가 별도).
 - **2026-10-04(이어서)**: 시작 프로그램 탭(v2.3.0), 문제 해결·속도 제한 감지(v2.3.1), 스로틀 기록·팬 보호·부하 테스트(v2.3.2), 사용 모드·내 설정(v2.4.0). 앱 안 업데이트 실제 동작 확인(2.3.0→2.3.1). 전원 원인 실측. 시작 프로그램·사용 모드 쇼츠 3개 국어(유튜브·인스타).
 - **2026-10-02~04**: 모니터 절전 복구 + ⌃⌥⌘B, 대시보드 CPU·메모리, 스로틀 전 자동 절전·선제 팬·원인 앱 낮추기, 앱 안 업데이트, 일본어, 유니버설 빌드 수정. v2.2.0·v2.2.1 릴리스. 홍보 영상(국문·영문·쇼츠)을 유튜브·인스타·스레드·커뮤니티·링크드인에 게시(작업 폴더 `~/Videos/macfancontrol-promo/v3-update/`).
@@ -51,4 +62,5 @@
 
 ```
 claude --resume a4be99bb-a5b4-4f5f-9547-3513fde28329
+claude --resume 4273b36b-5853-4c39-b50f-2db935bb0d26
 ```
