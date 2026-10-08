@@ -24,18 +24,31 @@ struct ThermalReading: Equatable {
 
 enum Thermal {
 
+    /// 팬 개수 — 팬 없는 MacBook Air 는 0
+    static let fanCount: Int = {
+        if let n = SMC.shared.read(SMCKeys.fanCount)?.asDouble { return Int(n) }
+        return SMC.shared.read(SMCKeys.fan0Max) == nil ? 0 : 1
+    }()
+
+    static var hasFan: Bool { fanCount > 0 }
+
     static func read() -> ThermalReading {
         var r = ThermalReading(fanManual: false)
 
-        // CPU 온도 — 후보 순회
-        for key in SMCKeys.cpuTempCandidates {
-            if let v = SMC.shared.read(key)?.asDouble, v > 0, v < 120 {
-                r.cpuTemp = v
-                break
+        if Platform.isAppleSilicon {
+            r.cpuTemp = AppleSiliconSensors.average(AppleSiliconSensors.keys.cpu)
+            r.gpuTemp = AppleSiliconSensors.average(AppleSiliconSensors.keys.gpu)
+        } else {
+            // CPU 온도 — 후보 순회
+            for key in SMCKeys.cpuTempCandidates {
+                if let v = SMC.shared.read(key)?.asDouble, v > 0, v < 120 {
+                    r.cpuTemp = v
+                    break
+                }
             }
-        }
-        if let v = SMC.shared.read(SMCKeys.gpuTemp)?.asDouble, v > 0, v < 120 {
-            r.gpuTemp = v
+            if let v = SMC.shared.read(SMCKeys.gpuTemp)?.asDouble, v > 0, v < 120 {
+                r.gpuTemp = v
+            }
         }
         if let v = SMC.shared.read(SMCKeys.batteryTemp)?.asDouble, v > 0, v < 80 {
             r.batteryTemp = v

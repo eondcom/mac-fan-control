@@ -34,16 +34,17 @@ enum Maintenance {
 
     /// T2 칩이 있는 인텔 맥 (2018~2020)
     static let hasT2: Bool = {
-        var size = 0
-        sysctlbyname("hw.model", nil, &size, nil, 0)
-        var buf = [CChar](repeating: 0, count: max(size, 1))
-        sysctlbyname("hw.model", &buf, &size, nil, 0)
-        let m = String(cString: buf)
         let prefixes = ["MacBookPro15,", "MacBookPro16,", "MacBookAir8,", "MacBookAir9,", "Macmini8,", "iMac20,", "iMacPro1,", "MacPro7,"]
-        return prefixes.contains { m.hasPrefix($0) }
+        return !Platform.isAppleSilicon && prefixes.contains { Platform.model.hasPrefix($0) }
     }()
 
     static var smcSteps: [String] {
+        // Apple Silicon 은 SMC 재설정 키 조합이 없다 — 완전히 껐다 켜면 같은 효과
+        if Platform.isAppleSilicon {
+            return [tr("맥을 종료합니다."),
+                    tr("데스크톱 맥은 전원 케이블을 뽑습니다. 노트북은 그대로 둡니다."),
+                    tr("30초 기다렸다가 (케이블을 다시 꽂고) 켭니다.")]
+        }
         if hasT2 {
             return [tr("1차 — 맥을 종료하고, 전원 버튼을 10초 누른 뒤 떼고, 몇 초 뒤 켭니다."),
                     tr("그래도 안 되면 — 종료한 뒤 오른쪽 Shift + 왼쪽 Option + 왼쪽 Control 을 7초 누릅니다."),

@@ -9,8 +9,9 @@ struct SMCStepsSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("SMC 재설정 방법")
                 .font(EU.font(16, .bold))
-            Text(tr(Maintenance.hasT2 ? "이 맥은 T2 칩 모델입니다. 앱으로는 할 수 없고, 맥을 끈 상태에서 버튼으로 합니다."
-                                      : "앱으로는 할 수 없고, 맥을 끈 상태에서 버튼으로 합니다."))
+            Text(tr(Platform.isAppleSilicon ? "Apple Silicon 맥은 따로 SMC 재설정 방법이 없습니다. 완전히 껐다가 켜면 같은 효과입니다."
+                    : Maintenance.hasT2 ? "이 맥은 T2 칩 모델입니다. 앱으로는 할 수 없고, 맥을 끈 상태에서 버튼으로 합니다."
+                                        : "앱으로는 할 수 없고, 맥을 끈 상태에서 버튼으로 합니다."))
                 .font(EU.font(12))
                 .foregroundStyle(EU.fg3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -27,7 +28,9 @@ struct SMCStepsSheet: View {
                     }
                 }
             }
-            Text("이 안내는 종료하면 사라지니 휴대폰으로 찍어 두거나 순서를 기억해 두세요. 켠 뒤 성능 탭에서 CPU 속도가 100% 로 돌아왔는지 확인하세요.")
+            Text(tr(Platform.hasSpeedLimit
+                    ? "이 안내는 종료하면 사라지니 휴대폰으로 찍어 두거나 순서를 기억해 두세요. 켠 뒤 성능 탭에서 CPU 속도가 100% 로 돌아왔는지 확인하세요."
+                    : "이 안내는 종료하면 사라지니 휴대폰으로 찍어 두거나 순서를 기억해 두세요."))
                 .font(EU.font(11.5))
                 .foregroundStyle(EU.fg4)
                 .fixedSize(horizontal: false, vertical: true)
@@ -177,6 +180,54 @@ struct TroubleshootRows: View {
                 Spacer()
                 Button(tr(button), action: action)
                     .buttonStyle(.eu(.light, small: true))
+            }
+            .padding(.vertical, 8)
+        }
+    }
+}
+
+/// 진단 정보 복사 — 칩·센서·팬 키를 텍스트로 모아 개발자에게 보낸다.
+struct DiagnosticsRow: View {
+    @EnvironmentObject var state: AppState
+    @State private var working = false
+    @State private var copied = false
+
+    var body: some View {
+        EUListRow {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("진단 정보 복사")
+                    Text(trf("칩·온도 센서·팬 상태를 복사합니다. 문제를 알릴 때 붙여 넣어 주세요. (%@ · %@)",
+                             Platform.chip, Platform.model))
+                        .font(EU.font(11.5))
+                        .foregroundStyle(EU.fg3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                if copied {
+                    EUChip(text: "복사됨", tone: .success, icon: "checkmark")
+                }
+                Button {
+                    working = true
+                    let mode = state.fanMode.rawValue
+                    let target = state.fanTarget
+                    Task.detached {
+                        let text = Diagnostics.report(fanMode: mode, fanTarget: target)
+                        await MainActor.run {
+                            Diagnostics.copyToPasteboard(text)
+                            working = false
+                            copied = true
+                        }
+                    }
+                } label: {
+                    if working {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("복사")
+                    }
+                }
+                .buttonStyle(.eu(.light, small: true))
+                .disabled(working)
             }
             .padding(.vertical, 8)
         }

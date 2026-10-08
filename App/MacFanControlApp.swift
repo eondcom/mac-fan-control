@@ -81,7 +81,7 @@ struct MenuBarLabel: View {
                     }
                 }
             }
-            if state.mbShowFan {
+            if state.mbShowFan && Thermal.hasFan {
                 Text(state.thermal.fanRPM.map { "\($0)rpm" } ?? "—rpm")
             }
         }

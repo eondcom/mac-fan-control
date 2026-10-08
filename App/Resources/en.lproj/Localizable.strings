@@ -505,3 +505,20 @@
 "내장 화면을 켜지 못해 외장 모니터를 끄지 않았습니다" = "Couldn't turn on the built-in screen, so the external display was left on";
 "켜진 화면이 이것 하나라 끌 수 없습니다" = "This is the only active screen, so it can't be turned off";
 "화면을 연결한 채 꺼 두면 절전에서 깨어날 때 화면이 안 켜질 수 있습니다. 그럴 땐 케이블을 뽑거나 ⌃⌥⌘B 를 누르세요. 충전만 하려면 모니터 전원 버튼으로 끄고 모니터 메뉴의 '대기 중 USB-C 전원 공급'을 켜 두는 쪽이 안전합니다" = "A screen turned off while still connected may stay dark after waking from sleep. If that happens, unplug the cable or press ⌃⌥⌘B. To only charge, it's safer to turn the monitor off with its power button and enable its standby USB-C power delivery option.";
+
+/* Apple Silicon · 진단 */
+"약간 높음" = "Slightly Elevated";
+"높음" = "Serious";
+"macOS 열 상태가 '%@'입니다. 1분 넘게 내려오면 다시 구간 제어로 돌아옵니다." = "macOS thermal state is '%@'. Zone control resumes after it stays lower for over a minute.";
+"데스크톱 맥은 전원 케이블을 뽑습니다. 노트북은 그대로 둡니다." = "On a desktop Mac, unplug the power cable. Leave laptops as they are.";
+"30초 기다렸다가 (케이블을 다시 꽂고) 켭니다." = "Wait 30 seconds, (plug the cable back in,) and turn it on.";
+"Apple Silicon 맥은 따로 SMC 재설정 방법이 없습니다. 완전히 껐다가 켜면 같은 효과입니다." = "Apple silicon Macs have no separate SMC reset. Shutting down fully and turning back on has the same effect.";
+"이 안내는 종료하면 사라지니 휴대폰으로 찍어 두거나 순서를 기억해 두세요." = "This guide disappears when the Mac shuts down, so take a photo or remember the steps.";
+"macOS 열 상태가 '높음' 이상이면 성능을 줄이고 있다는 뜻입니다. 4초 안에 macOS 자동 팬으로 넘기고, 1분 넘게 내려와 있으면 구간 제어로 돌아옵니다" = "A macOS thermal state of 'Serious' or higher means performance is being reduced. Fans are handed to macOS within 4 seconds, and zone control resumes after it stays lower for over a minute";
+"열 상태" = "Thermal State";
+"발열 때문에 느려짐" = "Slowed by heat";
+"macOS가 판단한 발열 단계" = "Heat level reported by macOS";
+"진단 정보 복사" = "Copy Diagnostics";
+"칩·온도 센서·팬 상태를 복사합니다. 문제를 알릴 때 붙여 넣어 주세요. (%@ · %@)" = "Copies chip, temperature sensor and fan details. Paste it when reporting a problem. (%@ · %@)";
+"복사됨" = "Copied";
+"복사" = "Copy";

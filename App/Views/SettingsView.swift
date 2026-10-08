@@ -124,6 +124,8 @@ struct SettingsView: View {
 
             section("문제 해결") {
                 TroubleshootRows()
+                EUDivider()
+                DiagnosticsRow()
             }
 
             section("정보") {

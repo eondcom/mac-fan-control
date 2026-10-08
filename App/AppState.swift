@@ -71,6 +71,8 @@ final class AppState: ObservableObject {
     @AppStorage("throttle_fan_protect") var throttleFanProtect: Bool = true
     @Published private(set) var throttleOverride = false
     private var lastSpeed: Int?
+    /// 속도 제한 중인지 — Intel 은 CPU 속도 100% 미만, Apple Silicon 은 macOS 열 상태 높음 이상
+    private var lastThrottled: Bool?
     private var fanThrottleSince: Date?
     private var fanThrottleClearSince: Date?
 
@@ -190,6 +192,7 @@ final class AppState: ObservableObject {
                 if self.thermal != t { self.thermal = t }
                 // 한 번 튀는 건 반만 반영
                 self.lastSpeed = speed
+                self.lastThrottled = Platform.hasSpeedLimit ? speed.map { $0 < 100 } : Platform.isThermalThrottling
                 let smoothed = self.cpuLoad * 0.5 + load * 0.5
                 if abs(smoothed - self.cpuLoad) >= 1 { self.cpuLoad = smoothed }
                 self.controlStep()
@@ -405,9 +408,9 @@ final class AppState: ObservableObject {
         }
 
         // 속도 제한 보호 — 팬이 낮아 깎이면 4초 안에 시스템 자동으로, 1분 넘게 풀려 있으면 돌아온다.
-        if throttleFanProtect, let s = lastSpeed {
+        if throttleFanProtect, let throttled = lastThrottled {
             let now = Date()
-            if s < 100 {
+            if throttled {
                 fanThrottleClearSince = nil
                 let since = fanThrottleSince ?? now
                 fanThrottleSince = since
@@ -415,8 +418,11 @@ final class AppState: ObservableObject {
                     throttleOverride = true
                     fanTarget = nil
                     fanQueue.async { Thermal.resetFanAuto() }
-                    Notifier.post(id: "throttle-fan", title: tr("속도 제한이 걸려 팬을 시스템에 맡겼습니다"),
-                                  body: trf("CPU 속도 %d%%. 속도가 1분 넘게 돌아오면 다시 구간 제어로 돌아옵니다. 자주 생기면 팬 제어 탭의 추천 하한을 적용하세요.", s))
+                    let body = lastSpeed.map {
+                        trf("CPU 속도 %d%%. 속도가 1분 넘게 돌아오면 다시 구간 제어로 돌아옵니다. 자주 생기면 팬 제어 탭의 추천 하한을 적용하세요.", $0)
+                    } ?? trf("macOS 열 상태가 '%@'입니다. 1분 넘게 내려오면 다시 구간 제어로 돌아옵니다.",
+                             Platform.thermalStateLabel(Platform.thermalState))
+                    Notifier.post(id: "throttle-fan", title: tr("속도 제한이 걸려 팬을 시스템에 맡겼습니다"), body: body)
                 }
             } else {
                 fanThrottleSince = nil

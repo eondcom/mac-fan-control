@@ -8,7 +8,7 @@ import Foundation
 //   daemon <enable|disable> <label>  /Library/LaunchDaemons 항목 켜기·끄기 (Apple 항목 제외)
 // 다른 SMC 키·pmset 설정·launchd 항목은 쓸 수 없다.
 
-let helperVersion = "3"
+let helperVersion = "4"
 
 func fail(_ msg: String, _ code: Int32 = 1) -> Never {
     FileHandle.standardError.write((msg + "\n").data(using: .utf8)!)
@@ -89,15 +89,22 @@ case ("set", 2):
     guard let raw = Int(args[args.startIndex + 1]), (500...10_000).contains(raw) else {
         fail("rpm must be an integer in 500...10000", 64)
     }
-    _ = SMC.shared.writeUInt8("Ftst", value: 1)
+    // Apple Silicon: Ftst=1 로 잠금을 푼 뒤 SMC 가 받아들일 때까지 수동 모드 쓰기가 몇 초 실패한다.
+    let unlocking = SMC.shared.writeUInt8("Ftst", value: 1)
     var ok = false
     for i in 0..<count {
         let lo = Int(SMC.shared.read("F\(i)Mn")?.asDouble ?? 0)
         let hi = Int(SMC.shared.read("F\(i)Mx")?.asDouble ?? 0)
         guard hi > lo else { continue }
         let rpm = min(max(raw, lo), hi)
-        if SMC.shared.writeUInt8("F\(i)Md", value: 1),
-           SMC.shared.writeRPM("F\(i)Tg", rpm: Double(rpm)) {
+        var manual = SMC.shared.writeUInt8("F\(i)Md", value: 1)
+        var tries = 0
+        while !manual, unlocking, tries < 30 {
+            usleep(100_000)
+            tries += 1
+            manual = SMC.shared.writeUInt8("F\(i)Md", value: 1)
+        }
+        if manual, SMC.shared.writeRPM("F\(i)Tg", rpm: Double(rpm)) {
             ok = true
         }
     }

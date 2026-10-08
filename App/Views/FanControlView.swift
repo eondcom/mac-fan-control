@@ -52,7 +52,10 @@ struct FanControlView: View {
 
             BoostSettings()
             ThermalGuardSettings()
-            FanCalibrationCard(cal: state.calibrator)
+            // 부하 테스트는 CPU 속도 제한 값으로 판정한다 — Intel 전용
+            if Platform.hasSpeedLimit {
+                FanCalibrationCard(cal: state.calibrator)
+            }
 
             Text("앱을 종료하면 팬은 시스템 자동으로 돌아갑니다.")
                 .font(EU.font(11.5))
@@ -359,7 +362,9 @@ private struct BoostSettings: View {
                             Text("속도 제한이 걸리면 팬을 시스템에 맡기기").font(EU.font(13, .semibold))
                             if state.throttleOverride { EUChip(text: "작동 중", tone: .warning) }
                         }
-                        Text("팬을 낮게 두면 CPU 온도가 정상이어도 전원부가 데워져 속도가 깎일 수 있습니다. 깎이면 4초 안에 macOS 자동 팬으로 넘기고, 1분 넘게 풀려 있으면 구간 제어로 돌아옵니다")
+                        Text(tr(Platform.hasSpeedLimit
+                                ? "팬을 낮게 두면 CPU 온도가 정상이어도 전원부가 데워져 속도가 깎일 수 있습니다. 깎이면 4초 안에 macOS 자동 팬으로 넘기고, 1분 넘게 풀려 있으면 구간 제어로 돌아옵니다"
+                                : "macOS 열 상태가 '높음' 이상이면 성능을 줄이고 있다는 뜻입니다. 4초 안에 macOS 자동 팬으로 넘기고, 1분 넘게 내려와 있으면 구간 제어로 돌아옵니다"))
                             .font(EU.font(11.5))
                             .foregroundStyle(EU.fg3)
                     }
@@ -437,8 +442,11 @@ private struct ThermalGuardSettings: View {
                     }
                 }
 
-                EUDivider()
-                ThrottleHistoryPanel(log: state.throttleLog)
+                // 스로틀 기록은 CPU 속도 제한 값으로 쌓는다 — Intel 전용
+                if Platform.hasSpeedLimit {
+                    EUDivider()
+                    ThrottleHistoryPanel(log: state.throttleLog)
+                }
             }
         }
     }

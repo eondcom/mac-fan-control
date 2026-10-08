@@ -4,7 +4,23 @@ import Foundation
 enum FanHelper {
     static let installedPath = "/Library/PrivilegedHelperTools/com.eond.macfancontrol.smc"
     /// Helper/main.swift의 helperVersion과 같아야 한다.
-    static let expectedVersion = "3"
+    static let expectedVersion = "4"
+    /// 이미 설치된 헬퍼로 충분한 버전 — v4는 Apple Silicon 팬 잠금 해제 대기만 더했으므로 Intel은 v3도 쓴다.
+    static let minimumVersion = Platform.isAppleSilicon ? 4 : 3
+
+    /// 마지막 팬 쓰기 결과 — 진단 정보용 (명령, 종료 코드, 시각)
+    private(set) static var lastWrite: (command: String, status: Int32, date: Date)?
+    private static let lock = NSLock()
+
+    private static func record(_ command: String, _ status: Int32) -> Bool {
+        lock.lock(); lastWrite = (command, status, Date()); lock.unlock()
+        return status == 0
+    }
+
+    static var lastWriteSnapshot: (command: String, status: Int32, date: Date)? {
+        lock.lock(); defer { lock.unlock() }
+        return lastWrite
+    }
 
     enum Status { case ready, missing, outdated }
 
@@ -24,7 +40,7 @@ enum FanHelper {
         let perms = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
         guard owner == 0, perms & 0o4000 != 0 else { return .outdated }
         let v = Shell.run(installedPath, ["version"]).trimmingCharacters(in: .whitespacesAndNewlines)
-        verified = v == expectedVersion
+        verified = (Int(v) ?? 0) >= minimumVersion
         return verified ? .ready : .outdated
     }
 
@@ -46,7 +62,7 @@ enum FanHelper {
 
     @discardableResult
     static func setFanSpeed(rpm: Int) -> Bool {
-        Shell.runReturningStatus(installedPath, ["set", String(rpm)]) == 0
+        record("set \(rpm)", Shell.runReturningStatus(installedPath, ["set", String(rpm)]))
     }
 
     /// 저전력 모드 — 헬퍼가 있으면 암호 없이 바꾼다.
@@ -56,6 +72,6 @@ enum FanHelper {
 
     @discardableResult
     static func resetAuto() -> Bool {
-        Shell.runReturningStatus(installedPath, ["auto"]) == 0
+        record("auto", Shell.runReturningStatus(installedPath, ["auto"]))
     }
 }

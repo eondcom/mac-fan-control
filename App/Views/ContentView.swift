@@ -4,6 +4,9 @@ enum AppTab: String, CaseIterable, Identifiable {
     case dashboard, fan, battery, display, performance, startup, settings
     var id: String { rawValue }
 
+    /// 팬 없는 맥(MacBook Air 등)은 팬 제어 탭을 숨긴다.
+    static var visible: [AppTab] { allCases.filter { $0 != .fan || Thermal.hasFan } }
+
     var title: String {
         switch self {
         case .dashboard: return tr("대시보드")
@@ -112,7 +115,7 @@ private struct Sidebar: View {
             .padding(.horizontal, 10)
             .padding(.bottom, 18)
 
-            ForEach(AppTab.allCases) { t in
+            ForEach(AppTab.visible) { t in
                 NavItem(tab: t, selected: tab == t) { tab = t }
             }
 
@@ -137,7 +140,9 @@ private struct Sidebar: View {
             VStack(alignment: .leading, spacing: 6) {
                 miniStat("CPU", state.thermal.cpuTemp.map { String(format: "%.0f°", $0) } ?? "—",
                          tone: TempLevel.from(state.thermal.cpuTemp)?.tone)
-                miniStat("팬", state.thermal.fanRPM.map { "\($0.formatted())" } ?? "—", tone: nil)
+                if Thermal.hasFan {
+                    miniStat("팬", state.thermal.fanRPM.map { "\($0.formatted())" } ?? "—", tone: nil)
+                }
             }
             .padding(12)
             .background(EU.c1, in: RoundedRectangle(cornerRadius: EU.rRow + 2, style: .continuous))

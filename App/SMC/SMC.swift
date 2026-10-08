@@ -70,6 +70,7 @@ private struct SMCKeyData_t {
 private let kSMCReadKey: UInt8  = 5
 private let kSMCWriteKey: UInt8 = 6
 private let kSMCGetKeyInfo: UInt8 = 9
+private let kSMCGetKeyFromIndex: UInt8 = 8
 
 enum SMCError: Error {
     case driverNotFound
@@ -114,6 +115,11 @@ struct SMCValue {
         return (UInt16(bytes[0]) << 8) | UInt16(bytes[1])
     }
 
+    var asUInt32: UInt32? {
+        guard bytes.count >= 4 else { return nil }
+        return bytes.prefix(4).reduce(0) { ($0 << 8) | UInt32($1) }
+    }
+
     /// Numeric value, trying type-appropriate decoding.
     var asDouble: Double? {
         switch dataType.trimmingCharacters(in: .whitespaces) {
@@ -122,6 +128,7 @@ struct SMCValue {
         case "fpe2":  return asFPE2
         case "ui8":   return asUInt8.map { Double($0) }
         case "ui16":  return asUInt16.map { Double($0) }
+        case "ui32":  return asUInt32.map { Double($0) }
         default:      return nil
         }
     }
@@ -182,6 +189,21 @@ final class SMC {
         let typeStr = infoOut.keyInfo.dataType.asFourCharString
         let bytes = bytesFromTuple(readOut.bytes, length: Int(min(size, 32)))
         return SMCValue(key: keyString, dataType: typeStr, bytes: bytes)
+    }
+
+    /// SMC에 있는 키 이름 전부 — Apple Silicon은 칩마다 온도 키가 달라 목록에서 찾는다.
+    func allKeys() -> [String] {
+        guard let n = read("#KEY")?.asUInt32, n > 0, n < 10_000 else { return [] }
+        var keys: [String] = []
+        keys.reserveCapacity(Int(n))
+        for i in 0..<n {
+            var input = SMCKeyData_t()
+            input.data8 = kSMCGetKeyFromIndex
+            input.data32 = i
+            guard let out = call(input: input), out.result == 0 else { continue }
+            keys.append(out.key.asFourCharString)
+        }
+        return keys
     }
 
     // MARK: write

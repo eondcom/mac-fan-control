@@ -61,16 +61,18 @@ struct MenuBarView: View {
 
             // 팬·전원
             VStack(spacing: 0) {
-                EUInfoRow(label: "팬") {
-                    Text(state.thermal.fanRPM.map { "\($0.formatted()) rpm" } ?? "—")
-                        .monospacedDigit()
+                if Thermal.hasFan {
+                    EUInfoRow(label: "팬") {
+                        Text(state.thermal.fanRPM.map { "\($0.formatted()) rpm" } ?? "—")
+                            .monospacedDigit()
+                    }
+                    EUDivider()
+                    EUInfoRow(label: "팬 제어") {
+                        EUChip(text: state.fanModeLabel,
+                               tone: state.safetyOverride ? .warning : (state.fanMode == .zone ? .primary : .neutral))
+                    }
+                    EUDivider()
                 }
-                EUDivider()
-                EUInfoRow(label: "팬 제어") {
-                    EUChip(text: state.fanModeLabel,
-                           tone: state.safetyOverride ? .warning : (state.fanMode == .zone ? .primary : .neutral))
-                }
-                EUDivider()
                 EUInfoRow(label: "전원") {
                     EUChip(text: state.power == .low ? "절전" : "기본",
                            tone: state.power == .low ? .success : .neutral)

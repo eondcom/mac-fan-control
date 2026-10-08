@@ -111,8 +111,15 @@ struct PerformanceView: View {
             MemoryUsageCard(sample: s)
             EUCard {
                 VStack(alignment: .leading, spacing: 12) {
-                    EUCardHeader(title: "CPU 속도", icon: "speedometer")
-                    if let l = s.speedLimit {
+                    EUCardHeader(title: tr(Platform.hasSpeedLimit ? "CPU 속도" : "열 상태"), icon: "speedometer")
+                    if !Platform.hasSpeedLimit {
+                        let t = Platform.thermalState
+                        EUStatValue(value: Platform.thermalStateLabel(t),
+                                    color: Platform.isThermalThrottling ? EU.dangerFg : EU.fg)
+                        Text(Platform.isThermalThrottling ? "발열 때문에 느려짐" : "macOS가 판단한 발열 단계")
+                            .font(EU.font(12))
+                            .foregroundStyle(EU.fg3)
+                    } else if let l = s.speedLimit {
                         EUStatValue(value: "\(l)", unit: "%", color: l < 100 ? EU.dangerFg : EU.fg)
                         Text(l < 100 ? "발열·전원 때문에 느려짐" : "제한 없음")
                             .font(EU.font(12))
